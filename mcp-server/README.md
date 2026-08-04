@@ -147,6 +147,7 @@ npm run start:http
 | `PORT` | `8080` | Port the HTTP server listens on (Cloud Run sets this automatically) |
 | `LOCAL_PM_URL` | `http://localhost:3010` | Base URL of the Local PM instance to proxy to — point this at your deployed app's URL, not `localhost`, when running remotely |
 | `MCP_AUTH_TOKEN` | *(none)* | Shared-secret gate. **Required for any deployment reachable from the internet** — without it the server accepts unauthenticated requests. Checked against either an `Authorization: Bearer <token>` header or a `?key=<token>` query param |
+| `IAP_AUDIENCE` | *(none)* | Only needed when `LOCAL_PM_URL` points at a Cloud Run service sitting behind Identity-Aware Proxy (IAP) — IAP gates every path on that service, including this REST API, not just its browser UI. Set to that resource's IAP OAuth **Client ID** (format `NNNNN-xxxxx.apps.googleusercontent.com`, from GCP Console → Security → Identity-Aware Proxy → the resource → Settings). Requires the resource's IAP to use a *custom* OAuth client — Google-managed IAP clients (the default from a plain `--iap` flag) cannot be used for programmatic access at all. When set, this server mints its own Google ID token via its Cloud Run service account (no key file) and attaches it to every outbound call; also grant that service account `roles/iap.httpsResourceAccessor` on the target resource. Leave unset for a plain, non-IAP backend |
 
 ### Adding it as a custom connector in Claude
 

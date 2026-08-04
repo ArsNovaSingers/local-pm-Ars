@@ -10,8 +10,32 @@ import {
   ListToolsRequestSchema,
   Tool,
 } from '@modelcontextprotocol/sdk/types.js';
+import { GoogleAuth, IdTokenClient } from 'google-auth-library';
 
 const BASE_URL = process.env.LOCAL_PM_URL || 'http://localhost:3010';
+
+// If LOCAL_PM_URL points at a Cloud Run service sitting behind Identity-Aware Proxy (IAP),
+// IAP gates *every* path on that service, including this REST API — not just the browser UI.
+// Set IAP_AUDIENCE to that IAP resource's OAuth Client ID (format:
+// "NNNNN-xxxxx.apps.googleusercontent.com", found in GCP Console under Security >
+// Identity-Aware Proxy > select the resource > Settings, once a *custom* OAuth client is
+// configured there — Google-managed IAP clients cannot be used for programmatic access at all)
+// and this server will mint its own Google ID token (via its Cloud Run service account, no key
+// file needed) and attach it to every outbound call. Leave unset for a plain, non-IAP backend.
+const IAP_AUDIENCE = process.env.IAP_AUDIENCE;
+
+// Lazily created and cached — GoogleAuth/IdTokenClient handle token refresh internally, so we
+// want exactly one client for the process lifetime, not one per request.
+let iapClientPromise: Promise<IdTokenClient> | undefined;
+
+function getIapClient(): Promise<IdTokenClient> | undefined {
+  if (!IAP_AUDIENCE) return undefined;
+  if (!iapClientPromise) {
+    const auth = new GoogleAuth();
+    iapClientPromise = auth.getIdTokenClient(IAP_AUDIENCE);
+  }
+  return iapClientPromise;
+}
 
 // Status mapping (MCP uses lowercase for readability, Payload uses uppercase)
 const STATUS_MAP: Record<string, string> = {
@@ -163,12 +187,19 @@ async function apiRequest(
   body?: unknown
 ): Promise<unknown> {
   const url = `${BASE_URL}/api${endpoint}`;
-  const options: RequestInit = {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-    },
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
   };
+
+  const iapClient = await getIapClient();
+  if (iapClient) {
+    // Behind IAP: attach a Google ID token scoped to the IAP audience so the request clears
+    // the proxy before it ever reaches Local PM's own API auth (there is none, currently).
+    const authHeaders = await iapClient.getRequestHeaders(url);
+    Object.assign(headers, authHeaders as unknown as Record<string, string>);
+  }
+
+  const options: RequestInit = { method, headers };
 
   if (body) {
     options.body = JSON.stringify(body);
