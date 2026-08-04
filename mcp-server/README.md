@@ -125,6 +125,45 @@ Add to your Claude Code settings file:
 }
 ```
 
+## Remote / Cloud Run Deployment
+
+Besides the stdio mode above (a local subprocess Claude Desktop/Code spawns per machine), this
+server also has an HTTP entry point (`src/http.ts` → `dist/http.js`) that runs as a persistent
+Streamable HTTP MCP server — deployable to Cloud Run (or any container host) and reachable from
+desktop, phone, and scheduled/headless sessions alike, not just one machine's Claude Desktop
+config.
+
+### Running it
+
+```bash
+npm run build
+npm run start:http
+```
+
+### Environment Variables (HTTP mode)
+
+| Variable | Default | Description |
+|----------|---------|--------------|
+| `PORT` | `8080` | Port the HTTP server listens on (Cloud Run sets this automatically) |
+| `LOCAL_PM_URL` | `http://localhost:3010` | Base URL of the Local PM instance to proxy to — point this at your deployed app's URL, not `localhost`, when running remotely |
+| `MCP_AUTH_TOKEN` | *(none)* | Shared-secret gate. **Required for any deployment reachable from the internet** — without it the server accepts unauthenticated requests. Checked against either an `Authorization: Bearer <token>` header or a `?key=<token>` query param |
+
+### Adding it as a custom connector in Claude
+
+Settings → Connectors → Add custom connector → URL:
+```
+https://<your-cloud-run-url>/mcp?key=<MCP_AUTH_TOKEN>
+```
+
+The first attempt may show a "couldn't register with sign-in service" error — this is expected
+(the server intentionally 401s the OAuth discovery paths Claude probes first) and clears up if you
+click Add/retry once; leave the OAuth Client ID field blank.
+
+### Dockerfile
+
+`mcp-server/Dockerfile` builds and runs `dist/http.js` in a small Node 20-alpine image, matching
+the pattern used for the main Local PM app's Dockerfile in the repo root.
+
 ## Usage Examples
 
 Once configured, AI models can interact with Local PM:

@@ -1,6 +1,6 @@
 {
   "name": "@local-pm/mcp-server",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "MCP server for Local PM - Project Management System",
   "type": "module",
   "main": "dist/index.js",
@@ -10,12 +10,15 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "start:http": "node dist/http.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0"
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "express": "^4.22.2"
   },
   "devDependencies": {
+    "@types/express": "^4.17.25",
     "@types/node": "^20.0.0",
     "typescript": "^5.0.0"
   },
