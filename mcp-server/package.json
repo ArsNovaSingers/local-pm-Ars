@@ -15,7 +15,8 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "express": "^4.22.2"
+    "express": "^4.22.2",
+    "google-auth-library": "^9.0.0"
   },
   "devDependencies": {
     "@types/express": "^4.17.25",
