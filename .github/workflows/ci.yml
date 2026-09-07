@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install app dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck app
+        run: npx tsc --noEmit
+
+      # The Next.js build needs these present, not working: DATABASE_URI is only read
+      # at runtime, but the Dockerfile bakes it as a build ARG, so the build fails
+      # without a value. Dummy values are correct here.
+      - name: Build app
+        run: npx next build
+        env:
+          DATABASE_URI: mongodb://localhost:27017/ci
+          PAYLOAD_SECRET: ci-build-only-secret
+          NEXT_PUBLIC_SERVER_URL: http://localhost:3010
+          NODE_OPTIONS: --no-deprecation --max-old-space-size=6000
+
+      - name: Install MCP server dependencies
+        working-directory: mcp-server
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck MCP server
+        working-directory: mcp-server
+        run: npx tsc --noEmit
