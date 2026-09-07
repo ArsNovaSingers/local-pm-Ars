@@ -99,14 +99,15 @@ export function ProjectsList({ initialProjects, initialPagination }: ProjectsLis
   }, [])
 
   useEffect(() => {
-    // Load teams for ticket detail modal
+    // Load Team Members for the ticket detail modal. The REST path stays /api/teams —
+    // the slug is unchanged on purpose (see collections/TeamMembers.ts).
     const loadTeams = async () => {
       try {
         const response = await fetch('/api/teams?limit=100')
         const data = await response.json()
         setTeams(data.docs || [])
       } catch (error) {
-        console.error('Failed to load teams:', error)
+        console.error('Failed to load team members:', error)
       }
     }
     loadTeams()

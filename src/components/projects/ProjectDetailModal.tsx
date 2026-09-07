@@ -17,7 +17,16 @@ import {
   ExternalLink,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import { ProjectStatus, PROJECT_STATUS_OPTIONS, PROJECT_COLORS, PROJECT_ICONS, TicketStatus } from '@/types/enums'
+import { ProjectStatus, PROJECT_STATUS_OPTIONS, PROJECT_COLORS, PROJECT_ICONS } from '@/types/enums'
+import {
+  type BoardStatus,
+  fallbackStatuses,
+  findStatus,
+  toBoardStatuses,
+  isDoneStatus,
+  statusColor,
+  statusLabel,
+} from '@/components/kanban/status-utils'
 import { RichTextEditor, RichTextDisplay } from '@/components/ui/RichTextEditor'
 import type { Project, Ticket } from '@/payload-types'
 import * as Icons from 'lucide-react'
@@ -61,6 +70,9 @@ export function ProjectDetailModal({
   const [isFullScreen, setIsFullScreen] = useState(false)
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [isLoadingTickets, setIsLoadingTickets] = useState(false)
+  // This modal loads its own tickets, so it loads its own workflow states too rather
+  // than having them threaded through every list that can open it.
+  const [statuses, setStatuses] = useState<BoardStatus[]>([])
   const [ticketPagination, setTicketPagination] = useState({
     page: 1,
     hasNextPage: false,
@@ -86,8 +98,19 @@ export function ProjectDetailModal({
       setColor(initialProject.color || '#6366f1')
       setDescription(initialProject.description as unknown as string || '')
       loadTickets()
+      loadStatuses()
     }
   }, [isOpen, initialProject])
+
+  const loadStatuses = async () => {
+    try {
+      const response = await fetch('/api/statuses?limit=200&depth=0&sort=order')
+      const data = await response.json()
+      setStatuses(toBoardStatuses(data.docs || []))
+    } catch (error) {
+      console.error('Failed to load statuses:', error)
+    }
+  }
 
   const loadTickets = async () => {
     setIsLoadingTickets(true)
@@ -131,11 +154,17 @@ export function ProjectDetailModal({
     }
   }
 
+  // Workflow states are configurable, so the breakdown is built from whatever states
+  // this workspace actually defines rather than a hardcoded Todo/In Progress/Done.
+  // A project using custom states used to report every one of them as "Done".
+  const statusList = statuses?.length ? statuses : fallbackStatuses()
   const ticketStats = {
     total: tickets.length,
-    todo: tickets.filter(t => t.status === TicketStatus.TODO).length,
-    inProgress: tickets.filter(t => t.status === TicketStatus.IN_PROGRESS).length,
-    done: tickets.filter(t => t.status === TicketStatus.DONE).length,
+    done: tickets.filter(t => isDoneStatus(statusList, t.status)).length,
+    byStatus: statusList
+      .map(s => ({ ...s, count: tickets.filter(t => String(t.status) === s.key).length }))
+      .filter(s => s.count > 0),
+    unknown: tickets.filter(t => !findStatus(statusList, t.status)).length,
   }
 
   const handleSave = async () => {
@@ -331,18 +360,18 @@ export function ProjectDetailModal({
                           <span className="text-sm text-gray-400">Total Tickets</span>
                           <span className="text-sm font-medium text-white">{ticketStats.total}</span>
                         </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-gray-400">Todo</span>
-                          <span className="text-sm font-medium text-gray-400">{ticketStats.todo}</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-gray-400">In Progress</span>
-                          <span className="text-sm font-medium text-blue-400">{ticketStats.inProgress}</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-gray-400">Done</span>
-                          <span className="text-sm font-medium text-green-400">{ticketStats.done}</span>
-                        </div>
+                        {ticketStats.byStatus.map((s) => (
+                          <div key={s.key} className="flex items-center justify-between">
+                            <span className="text-sm text-gray-400">{s.label}</span>
+                            <span className="text-sm font-medium" style={{ color: s.color }}>{s.count}</span>
+                          </div>
+                        ))}
+                        {ticketStats.unknown > 0 && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-amber-400">Unknown status</span>
+                            <span className="text-sm font-medium text-amber-400">{ticketStats.unknown}</span>
+                          </div>
+                        )}
 
                         {ticketStats.total > 0 && (
                           <div className="pt-2">
@@ -401,14 +430,15 @@ export function ProjectDetailModal({
                             <span className="flex-1 text-sm text-white truncate">
                               {ticket.title}
                             </span>
-                            <span className={`text-xs px-2 py-0.5 rounded ${
-                              ticket.status === TicketStatus.TODO ? 'bg-gray-500/20 text-gray-400' :
-                              ticket.status === TicketStatus.IN_PROGRESS ? 'bg-blue-500/20 text-blue-400' :
-                              'bg-green-500/20 text-green-400'
-                            }`}>
-                              {ticket.status === TicketStatus.TODO ? 'Todo' :
-                               ticket.status === TicketStatus.IN_PROGRESS ? 'In Progress' : 'Done'}
-                            </span>
+                            <span
+                          className="text-xs px-2 py-0.5 rounded"
+                          style={{
+                            backgroundColor: `${statusColor(statusList, ticket.status)}20`,
+                            color: statusColor(statusList, ticket.status),
+                          }}
+                        >
+                          {statusLabel(statusList, ticket.status)}
+                        </span>
                           </div>
                         ))}
 
@@ -624,18 +654,18 @@ export function ProjectDetailModal({
                         <span className="text-sm text-gray-400">Total Tickets</span>
                         <span className="text-sm font-medium text-white">{ticketStats.total}</span>
                       </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-400">Todo</span>
-                        <span className="text-sm font-medium text-gray-400">{ticketStats.todo}</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-400">In Progress</span>
-                        <span className="text-sm font-medium text-blue-400">{ticketStats.inProgress}</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-400">Done</span>
-                        <span className="text-sm font-medium text-green-400">{ticketStats.done}</span>
-                      </div>
+                      {ticketStats.byStatus.map((s) => (
+                        <div key={s.key} className="flex items-center justify-between">
+                          <span className="text-sm text-gray-400">{s.label}</span>
+                          <span className="text-sm font-medium" style={{ color: s.color }}>{s.count}</span>
+                        </div>
+                      ))}
+                      {ticketStats.unknown > 0 && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-amber-400">Unknown status</span>
+                          <span className="text-sm font-medium text-amber-400">{ticketStats.unknown}</span>
+                        </div>
+                      )}
 
                       {ticketStats.total > 0 && (
                         <div className="pt-2">
@@ -694,14 +724,15 @@ export function ProjectDetailModal({
                           <span className="flex-1 text-sm text-white truncate">
                             {ticket.title}
                           </span>
-                          <span className={`text-xs px-2 py-0.5 rounded ${
-                            ticket.status === TicketStatus.TODO ? 'bg-gray-500/20 text-gray-400' :
-                            ticket.status === TicketStatus.IN_PROGRESS ? 'bg-blue-500/20 text-blue-400' :
-                            'bg-green-500/20 text-green-400'
-                          }`}>
-                            {ticket.status === TicketStatus.TODO ? 'Todo' :
-                             ticket.status === TicketStatus.IN_PROGRESS ? 'In Progress' : 'Done'}
-                          </span>
+                          <span
+                          className="text-xs px-2 py-0.5 rounded"
+                          style={{
+                            backgroundColor: `${statusColor(statusList, ticket.status)}20`,
+                            color: statusColor(statusList, ticket.status),
+                          }}
+                        >
+                          {statusLabel(statusList, ticket.status)}
+                        </span>
                         </div>
                       ))}
 

@@ -16,27 +16,38 @@ import {
   ExternalLink,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import { PROJECT_COLORS, TicketStatus } from '@/types/enums'
+import { PROJECT_COLORS, TEAM_MEMBER_ROLE_OPTIONS, TeamMemberRole } from '@/types/enums'
+import {
+  fallbackStatuses,
+  isDoneStatus,
+  statusColor,
+  statusLabel,
+  type BoardStatus,
+} from '@/components/kanban/status-utils'
 import { RichTextEditor, RichTextDisplay } from '@/components/ui/RichTextEditor'
+/**
+ * `Team` is the generated type for the `teams` collection, which holds PEOPLE. Slug and
+ * type name are unchanged on purpose — see collections/TeamMembers.ts.
+ */
 import type { Team, Ticket } from '@/payload-types'
 
-interface TeamDetailModalProps {
+interface TeamMemberDetailModalProps {
   isOpen: boolean
   onClose: () => void
-  team: Team
-  onUpdate: (team: Team) => void
-  onDelete: (teamId: string) => void
+  teamMember: Team
+  onUpdate: (teamMember: Team) => void
+  onDelete: (teamMemberId: string) => void
   onTicketClick?: (ticket: Ticket) => void
 }
 
-export function TeamDetailModal({
+export function TeamMemberDetailModal({
   isOpen,
   onClose,
-  team: initialTeam,
+  teamMember: initialTeam,
   onUpdate,
   onDelete,
   onTicketClick,
-}: TeamDetailModalProps) {
+}: TeamMemberDetailModalProps) {
   const router = useRouter()
   const [team, setTeam] = useState(initialTeam)
   const [isEditing, setIsEditing] = useState(false)
@@ -53,18 +64,54 @@ export function TeamDetailModal({
 
   // Form state
   const [name, setName] = useState(team.name)
+  const [email, setEmail] = useState(team.email || '')
+  const [role, setRole] = useState<string>(String(team.role || TeamMemberRole.MEMBER))
+  const [active, setActive] = useState(team.active !== false)
   const [description, setDescription] = useState<string>(team.description as unknown as string || '')
   const [color, setColor] = useState(team.color || '#6366f1')
+
+  /**
+   * Statuses are data, so "how many are done?" cannot be answered by comparing against a
+   * literal. This modal is opened from the people list, which has no status rows to hand,
+   * so it falls back to the seeded defaults.
+   */
+  const [statusOptions, setStatusOptions] = useState<BoardStatus[]>(() => fallbackStatuses())
 
   useEffect(() => {
     if (isOpen) {
       setTeam(initialTeam)
       setName(initialTeam.name)
+      setEmail(initialTeam.email || '')
+      setRole(String(initialTeam.role || TeamMemberRole.MEMBER))
+      setActive(initialTeam.active !== false)
       setDescription(initialTeam.description as unknown as string || '')
       setColor(initialTeam.color || '#6366f1')
       loadTickets()
+      loadStatuses()
     }
   }, [isOpen, initialTeam])
+
+  const loadStatuses = async () => {
+    try {
+      const response = await fetch('/api/statuses?limit=200&sort=order&depth=0')
+      const data = await response.json()
+      if (data.docs?.length) {
+        setStatusOptions(
+          data.docs.map((doc: Record<string, unknown>) => ({
+            key: String(doc.key),
+            label: String(doc.label ?? doc.key),
+            color: (doc.color as string) || '#6b7280',
+            order: typeof doc.order === 'number' ? doc.order : 0,
+            isDefault: Boolean(doc.isDefault),
+            isDone: Boolean(doc.isDone),
+            isBlocked: Boolean(doc.isBlocked),
+          }))
+        )
+      }
+    } catch (error) {
+      console.error('Failed to load statuses:', error)
+    }
+  }
 
   const loadTickets = async () => {
     setIsLoadingTickets(true)
@@ -108,11 +155,11 @@ export function TeamDetailModal({
     }
   }
 
+  const doneTickets = tickets.filter((t) => isDoneStatus(statusOptions, t.status))
   const ticketStats = {
     total: tickets.length,
-    todo: tickets.filter(t => t.status === TicketStatus.TODO).length,
-    inProgress: tickets.filter(t => t.status === TicketStatus.IN_PROGRESS).length,
-    done: tickets.filter(t => t.status === TicketStatus.DONE).length,
+    done: doneTickets.length,
+    open: tickets.length - doneTickets.length,
   }
 
   const handleSave = async () => {
@@ -121,10 +168,17 @@ export function TeamDetailModal({
       const response = await fetch(`/api/teams/${team.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, description: description || null, color }),
+        body: JSON.stringify({
+          name,
+          email,
+          role,
+          active,
+          description: description || null,
+          color,
+        }),
       })
 
-      if (!response.ok) throw new Error('Failed to update team')
+      if (!response.ok) throw new Error('Failed to update team member')
 
       const updated = await response.json()
       const updatedTeam = updated.doc || updated
@@ -132,7 +186,7 @@ export function TeamDetailModal({
       onUpdate(updatedTeam)
       setIsEditing(false)
     } catch (error) {
-      console.error('Failed to save team:', error)
+      console.error('Failed to save team member:', error)
     } finally {
       setIsSaving(false)
     }
@@ -145,6 +199,9 @@ export function TeamDetailModal({
 
   const handleCancel = () => {
     setName(team.name)
+    setEmail(team.email || '')
+    setRole(String(team.role || TeamMemberRole.MEMBER))
+    setActive(team.active !== false)
     setDescription(team.description as unknown as string || '')
     setColor(team.color || '#6366f1')
     setIsEditing(false)
@@ -271,7 +328,7 @@ export function TeamDetailModal({
                         <RichTextEditor
                           value={description}
                           onChange={setDescription}
-                          placeholder="Describe the team's responsibilities, goals, and expertise..."
+                          placeholder="What this person does, and anything worth knowing about their work..."
                         />
                       ) : (
                         <RichTextDisplay content={team.description as unknown as string || ''} />
@@ -291,12 +348,8 @@ export function TeamDetailModal({
                           <span className="text-sm font-medium text-white">{ticketStats.total}</span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span className="text-sm text-gray-400">Todo</span>
-                          <span className="text-sm font-medium text-gray-400">{ticketStats.todo}</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-gray-400">In Progress</span>
-                          <span className="text-sm font-medium text-blue-400">{ticketStats.inProgress}</span>
+                          <span className="text-sm text-gray-400">Open</span>
+                          <span className="text-sm font-medium text-blue-400">{ticketStats.open}</span>
                         </div>
                         <div className="flex items-center justify-between">
                           <span className="text-sm text-gray-400">Done</span>
@@ -337,7 +390,7 @@ export function TeamDetailModal({
                     {isLoadingTickets ? (
                       <div className="text-sm text-gray-500">Loading...</div>
                     ) : tickets.length === 0 ? (
-                      <p className="text-sm text-gray-500">No tickets assigned to this team.</p>
+                      <p className="text-sm text-gray-500">No tickets assigned to this person.</p>
                     ) : (
                       <div className="space-y-2">
                         {tickets.map((ticket) => {
@@ -364,13 +417,14 @@ export function TeamDetailModal({
                               <span className="flex-1 text-sm text-white truncate">
                                 {ticket.title}
                               </span>
-                              <span className={`text-xs px-2 py-0.5 rounded ${
-                                ticket.status === TicketStatus.TODO ? 'bg-gray-500/20 text-gray-400' :
-                                ticket.status === TicketStatus.IN_PROGRESS ? 'bg-blue-500/20 text-blue-400' :
-                                'bg-green-500/20 text-green-400'
-                              }`}>
-                                {ticket.status === TicketStatus.TODO ? 'Todo' :
-                                 ticket.status === TicketStatus.IN_PROGRESS ? 'In Progress' : 'Done'}
+                              <span
+                                className="text-xs px-2 py-0.5 rounded"
+                                style={{
+                                  backgroundColor: `${statusColor(statusOptions, ticket.status)}20`,
+                                  color: statusColor(statusOptions, ticket.status),
+                                }}
+                              >
+                                {statusLabel(statusOptions, ticket.status)}
                               </span>
                             </div>
                           )
@@ -402,6 +456,69 @@ export function TeamDetailModal({
 
                 {/* Right Column - Metadata */}
                 <div className="w-80 shrink-0 space-y-6">
+                  {/* Person details */}
+                  <div className="bg-[#1f1f23] rounded-lg p-4">
+                    <h3 className="text-sm font-medium text-gray-400 mb-4">Details</h3>
+                    {isEditing ? (
+                      <div className="space-y-3">
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Email</label>
+                          <input
+                            type="email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            className="w-full bg-[#27272a] border border-[#3f3f46] rounded-md px-3 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Role</label>
+                          <select
+                            value={role}
+                            onChange={(e) => setRole(e.target.value)}
+                            className="w-full bg-[#27272a] border border-[#3f3f46] rounded-md px-3 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                          >
+                            {TEAM_MEMBER_ROLE_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={active}
+                            onChange={(e) => setActive(e.target.checked)}
+                          />
+                          Active
+                        </label>
+                        <p className="text-xs text-gray-500">
+                          Inactive people keep their history but drop out of assignment pickers.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2 text-sm">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-gray-400">Email</span>
+                          <span className="text-white truncate">{team.email}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-gray-400">Role</span>
+                          <span className="text-white">
+                            {TEAM_MEMBER_ROLE_OPTIONS.find((o) => o.value === team.role)?.label ??
+                              String(team.role)}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-gray-400">Status</span>
+                          <span className={team.active === false ? 'text-gray-500' : 'text-green-400'}>
+                            {team.active === false ? 'Inactive' : 'Active'}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   {/* Color */}
                   {isEditing && (
                     <div className="bg-[#1f1f23] rounded-lg p-4">
@@ -450,10 +567,73 @@ export function TeamDetailModal({
                     <RichTextEditor
                       value={description}
                       onChange={setDescription}
-                      placeholder="Describe the team's responsibilities, goals, and expertise..."
+                      placeholder="What this person does, and anything worth knowing about their work..."
                     />
                   ) : (
                     <RichTextDisplay content={team.description as unknown as string || ''} />
+                  )}
+                </div>
+
+                {/* Person details */}
+                <div className="bg-[#1f1f23] rounded-lg p-4 mb-6">
+                  <h3 className="text-sm font-medium text-gray-400 mb-4">Details</h3>
+                  {isEditing ? (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">Email</label>
+                        <input
+                          type="email"
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          className="w-full bg-[#27272a] border border-[#3f3f46] rounded-md px-3 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">Role</label>
+                        <select
+                          value={role}
+                          onChange={(e) => setRole(e.target.value)}
+                          className="w-full bg-[#27272a] border border-[#3f3f46] rounded-md px-3 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                        >
+                          {TEAM_MEMBER_ROLE_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={active}
+                          onChange={(e) => setActive(e.target.checked)}
+                        />
+                        Active
+                      </label>
+                      <p className="text-xs text-gray-500">
+                        Inactive people keep their history but drop out of assignment pickers.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 text-sm">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-gray-400">Email</span>
+                        <span className="text-white truncate">{team.email}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-gray-400">Role</span>
+                        <span className="text-white">
+                          {TEAM_MEMBER_ROLE_OPTIONS.find((o) => o.value === team.role)?.label ??
+                            String(team.role)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-gray-400">Status</span>
+                        <span className={team.active === false ? 'text-gray-500' : 'text-green-400'}>
+                          {team.active === false ? 'Inactive' : 'Active'}
+                        </span>
+                      </div>
+                    </div>
                   )}
                 </div>
 
@@ -489,12 +669,8 @@ export function TeamDetailModal({
                         <span className="text-sm font-medium text-white">{ticketStats.total}</span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-400">Todo</span>
-                        <span className="text-sm font-medium text-gray-400">{ticketStats.todo}</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-400">In Progress</span>
-                        <span className="text-sm font-medium text-blue-400">{ticketStats.inProgress}</span>
+                        <span className="text-sm text-gray-400">Open</span>
+                        <span className="text-sm font-medium text-blue-400">{ticketStats.open}</span>
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-gray-400">Done</span>
@@ -535,7 +711,7 @@ export function TeamDetailModal({
                   {isLoadingTickets ? (
                     <div className="text-sm text-gray-500">Loading...</div>
                   ) : tickets.length === 0 ? (
-                    <p className="text-sm text-gray-500">No tickets assigned to this team.</p>
+                    <p className="text-sm text-gray-500">No tickets assigned to this person.</p>
                   ) : (
                     <div className="space-y-2">
                       {tickets.map((ticket) => {
@@ -562,13 +738,14 @@ export function TeamDetailModal({
                             <span className="flex-1 text-sm text-white truncate">
                               {ticket.title}
                             </span>
-                            <span className={`text-xs px-2 py-0.5 rounded ${
-                              ticket.status === TicketStatus.TODO ? 'bg-gray-500/20 text-gray-400' :
-                              ticket.status === TicketStatus.IN_PROGRESS ? 'bg-blue-500/20 text-blue-400' :
-                              'bg-green-500/20 text-green-400'
-                            }`}>
-                              {ticket.status === TicketStatus.TODO ? 'Todo' :
-                               ticket.status === TicketStatus.IN_PROGRESS ? 'In Progress' : 'Done'}
+                            <span
+                              className="text-xs px-2 py-0.5 rounded"
+                              style={{
+                                backgroundColor: `${statusColor(statusOptions, ticket.status)}20`,
+                                color: statusColor(statusOptions, ticket.status),
+                              }}
+                            >
+                              {statusLabel(statusOptions, ticket.status)}
                             </span>
                           </div>
                         )

@@ -1,10 +1,15 @@
 'use client'
 
 import { Plus, Filter, X } from 'lucide-react'
+import { ViewSwitcher } from '@/components/ViewSwitcher'
 import type { Project, Team } from '@/payload-types'
 
 interface KanbanHeaderProps {
   projects: Project[]
+  /**
+   * Team Members — people. The Payload slug and generated type are still `teams`
+   * on purpose (see collections/TeamMembers.ts); only the wording changed.
+   */
   teams: Team[]
   selectedProjectId: string | null
   selectedTeamId: string | null
@@ -23,7 +28,7 @@ export function KanbanHeader({
   onCreateTicket,
 }: KanbanHeaderProps) {
   const selectedProject = projects.find((p) => p.id === selectedProjectId)
-  const selectedTeam = teams.find((t) => t.id === selectedTeamId)
+  const selectedMember = teams.find((t) => t.id === selectedTeamId)
 
   const hasFilters = selectedProjectId || selectedTeamId
 
@@ -31,6 +36,10 @@ export function KanbanHeader({
     <div className="flex items-center justify-between px-8 py-5 border-b border-border/50 bg-background/50 backdrop-blur-sm sticky top-0 z-10">
       <div className="flex items-center gap-6">
         <h1 className="text-2xl font-bold text-foreground tracking-tight">Board</h1>
+
+        <div className="h-6 w-px bg-border/50" />
+
+        <ViewSwitcher />
 
         <div className="h-6 w-px bg-border/50" />
 
@@ -57,17 +66,18 @@ export function KanbanHeader({
             </select>
           </div>
 
-          {/* Team Filter */}
+          {/* Assignee Filter */}
           <div className="relative">
             <select
               value={selectedTeamId || ''}
               onChange={(e) => onTeamChange(e.target.value || null)}
               className="appearance-none bg-secondary/50 hover:bg-secondary border border-border/50 rounded-md pl-3 pr-8 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer min-w-[120px]"
             >
-              <option value="">All Teams</option>
-              {teams.map((team) => (
-                <option key={team.id} value={team.id}>
-                  {team.name}
+              <option value="">Anyone</option>
+              {teams.map((member) => (
+                <option key={member.id} value={member.id}>
+                  {member.name}
+                  {member.active === false ? ' (inactive)' : ''}
                 </option>
               ))}
             </select>
@@ -112,17 +122,17 @@ export function KanbanHeader({
                 </button>
               </span>
             )}
-            {selectedTeam && (
+            {selectedMember && (
               <span
                 className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border shadow-sm transition-all hover:shadow-md"
                 style={{
-                  backgroundColor: `${selectedTeam.color}10`,
-                  color: selectedTeam.color as string,
-                  borderColor: `${selectedTeam.color}20`,
+                  backgroundColor: `${selectedMember.color}10`,
+                  color: selectedMember.color as string,
+                  borderColor: `${selectedMember.color}20`,
                 }}
               >
-                <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: selectedTeam.color as string }} />
-                {selectedTeam.name}
+                <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: selectedMember.color as string }} />
+                {selectedMember.name}
                 <button
                   onClick={() => onTeamChange(null)}
                   className="hover:opacity-70 ml-1 p-0.5"

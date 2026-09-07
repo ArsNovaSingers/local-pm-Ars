@@ -20,8 +20,10 @@ import { KanbanCard } from './KanbanCard'
 import { KanbanHeader } from './KanbanHeader'
 import { TicketModal } from './TicketModal'
 import { TicketDetailModal } from './TicketDetailModal'
-import { TicketStatus } from '@/types/enums'
-import type { Project, Team, Ticket } from '@/payload-types'
+import type { BoardStatus } from './status-utils'
+import type { Milestone, Project, Team, Ticket } from '@/payload-types'
+
+const TICKETS_PER_PAGE = 20
 
 interface ColumnPaginationInfo {
   page: number
@@ -31,10 +33,10 @@ interface ColumnPaginationInfo {
   loadedCount: number
 }
 
-type ColumnPaginationState = Record<TicketStatus, ColumnPaginationInfo>
+type ColumnPaginationState = Record<string, ColumnPaginationInfo>
 
 interface InitialColumnPagination {
-  status: TicketStatus
+  status: string
   page: number
   totalPages: number
   hasNextPage: boolean
@@ -44,63 +46,80 @@ interface InitialColumnPagination {
 interface KanbanBoardProps {
   initialTickets: Ticket[]
   projects: Project[]
+  /** People. The Payload slug is `teams` on purpose — see collections/TeamMembers.ts. */
   teams: Team[]
+  statuses: BoardStatus[]
+  milestones?: Milestone[]
   initialColumnPagination?: InitialColumnPagination[]
 }
 
-const COLUMNS = [
-  { id: TicketStatus.TODO, title: 'Todo' },
-  { id: TicketStatus.IN_PROGRESS, title: 'In Progress' },
-  { id: TicketStatus.DONE, title: 'Done' },
-]
+const EMPTY_PAGINATION: ColumnPaginationInfo = {
+  page: 1,
+  totalPages: 1,
+  hasNextPage: false,
+  totalDocs: 0,
+  loadedCount: 0,
+}
 
-// Helper to create initial pagination state per column
+/** Does this ticket belong in this column? Orphans belong to the unknown column. */
+function belongsToColumn(ticket: Ticket, column: BoardStatus, knownKeys: Set<string>): boolean {
+  if (column.isUnknown) return !knownKeys.has(String(ticket.status))
+  return ticket.status === column.key
+}
+
 function createInitialColumnPagination(
   initialTickets: Ticket[],
-  initialColumnPagination?: InitialColumnPagination[]
+  statuses: BoardStatus[],
+  knownKeys: Set<string>,
+  initialColumnPagination?: InitialColumnPagination[],
 ): ColumnPaginationState {
-  const defaultPagination: ColumnPaginationState = {
-    [TicketStatus.TODO]: { page: 1, totalPages: 1, hasNextPage: false, totalDocs: 0, loadedCount: 0 },
-    [TicketStatus.IN_PROGRESS]: { page: 1, totalPages: 1, hasNextPage: false, totalDocs: 0, loadedCount: 0 },
-    [TicketStatus.DONE]: { page: 1, totalPages: 1, hasNextPage: false, totalDocs: 0, loadedCount: 0 },
+  const state: ColumnPaginationState = {}
+  const fromServer = new Map((initialColumnPagination ?? []).map((c) => [c.status, c]))
+
+  for (const column of statuses) {
+    const loadedCount = initialTickets.filter((t) => belongsToColumn(t, column, knownKeys)).length
+    const server = fromServer.get(column.key)
+
+    state[column.key] = server
+      ? {
+          page: server.page,
+          totalPages: server.totalPages,
+          hasNextPage: server.hasNextPage,
+          totalDocs: server.totalDocs,
+          loadedCount,
+        }
+      : {
+          // No server pagination for this column: everything we have is everything there is.
+          page: 1,
+          totalPages: 1,
+          hasNextPage: false,
+          totalDocs: loadedCount,
+          loadedCount,
+        }
   }
 
-  // If we have initial column pagination from server, use it
-  if (initialColumnPagination) {
-    for (const colPag of initialColumnPagination) {
-      const loadedCount = initialTickets.filter(t => t.status === colPag.status).length
-      defaultPagination[colPag.status] = {
-        page: colPag.page,
-        totalPages: colPag.totalPages,
-        hasNextPage: colPag.hasNextPage,
-        totalDocs: colPag.totalDocs,
-        loadedCount,
-      }
-    }
-  } else {
-    // Fallback: count tickets per status from initial data
-    for (const status of COLUMNS.map(c => c.id)) {
-      const count = initialTickets.filter(t => t.status === status).length
-      defaultPagination[status] = {
-        page: 1,
-        totalPages: 1,
-        hasNextPage: false,
-        totalDocs: count,
-        loadedCount: count,
-      }
-    }
-  }
-
-  return defaultPagination
+  return state
 }
 
-export function KanbanBoard({ initialTickets, projects, teams, initialColumnPagination }: KanbanBoardProps) {
+export function KanbanBoard({
+  initialTickets,
+  projects,
+  teams,
+  statuses,
+  milestones = [],
+  initialColumnPagination,
+}: KanbanBoardProps) {
   const searchParams = useSearchParams()
   const router = useRouter()
   const pathname = usePathname()
 
   const [tickets, setTickets] = useState<Ticket[]>(initialTickets)
   const [activeTicket, setActiveTicket] = useState<Ticket | null>(null)
+
+  // The real, writable statuses — the synthetic orphan column is not one of them.
+  const realStatuses = useMemo(() => statuses.filter((s) => !s.isUnknown), [statuses])
+  const knownKeys = useMemo(() => new Set(realStatuses.map((s) => s.key)), [realStatuses])
+  const knownKeyList = useMemo(() => realStatuses.map((s) => s.key), [realStatuses])
 
   // Initialize from URL params
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
@@ -133,16 +152,40 @@ export function KanbanBoard({ initialTickets, projects, teams, initialColumnPagi
   const [editingTicket, setEditingTicket] = useState<Ticket | null>(null)
   const [viewingTicket, setViewingTicket] = useState<Ticket | null>(null)
 
-  // Pagination state per column
+  // Pagination state per column, keyed by status key
   const [columnPagination, setColumnPagination] = useState<ColumnPaginationState>(
-    () => createInitialColumnPagination(initialTickets, initialColumnPagination)
+    () => createInitialColumnPagination(initialTickets, statuses, knownKeys, initialColumnPagination)
   )
-  const [loadingColumns, setLoadingColumns] = useState<Record<TicketStatus, boolean>>({
-    [TicketStatus.TODO]: false,
-    [TicketStatus.IN_PROGRESS]: false,
-    [TicketStatus.DONE]: false,
-  })
-  const [isRefetching, setIsRefetching] = useState(false)
+  const [loadingColumns, setLoadingColumns] = useState<Record<string, boolean>>({})
+  const [, setIsRefetching] = useState(false)
+
+  const paginationFor = useCallback(
+    (key: string): ColumnPaginationInfo => columnPagination[key] ?? EMPTY_PAGINATION,
+    [columnPagination]
+  )
+
+  /**
+   * One column's REST query. The orphan column is the inverse of every known key rather
+   * than an equality match, so it stays correct as statuses are added or removed.
+   */
+  const buildColumnUrl = useCallback(
+    (column: BoardStatus, page: number) => {
+      const params = new URLSearchParams()
+      params.set('page', String(page))
+      params.set('limit', String(TICKETS_PER_PAGE))
+      params.set('depth', '2')
+      params.set('sort', 'sortOrder')
+      if (column.isUnknown) {
+        params.set('where[status][not_in]', knownKeyList.join(','))
+      } else {
+        params.set('where[status][equals]', column.key)
+      }
+      if (selectedProjectId) params.set('where[project][equals]', selectedProjectId)
+      if (selectedTeamId) params.set('where[team][equals]', selectedTeamId)
+      return `/api/tickets?${params.toString()}`
+    },
+    [knownKeyList, selectedProjectId, selectedTeamId]
+  )
 
   // Track if this is the initial mount to avoid refetching on first render
   const isInitialMount = useRef(true)
@@ -154,69 +197,47 @@ export function KanbanBoard({ initialTickets, projects, teams, initialColumnPagi
       return
     }
 
+    let cancelled = false
+
     const refetchTickets = async () => {
       setIsRefetching(true)
       try {
-        // Fetch all three columns in parallel
-        const fetchColumn = async (status: TicketStatus) => {
-          let url = `/api/tickets?page=1&limit=20&depth=2&sort=sortOrder&where[status][equals]=${status}`
-          if (selectedProjectId) {
-            url += `&where[project][equals]=${selectedProjectId}`
+        // Fetch every column in parallel — however many the workspace has defined.
+        const results = await Promise.all(
+          statuses.map(async (column) => {
+            const response = await fetch(buildColumnUrl(column, 1))
+            return { column, data: await response.json() }
+          })
+        )
+
+        if (cancelled) return
+
+        setTickets(results.flatMap((r) => r.data.docs || []))
+
+        const nextPagination: ColumnPaginationState = {}
+        for (const { column, data } of results) {
+          nextPagination[column.key] = {
+            page: data.page ?? 1,
+            totalPages: data.totalPages ?? 1,
+            hasNextPage: data.hasNextPage ?? false,
+            totalDocs: data.totalDocs ?? 0,
+            loadedCount: data.docs?.length ?? 0,
           }
-          if (selectedTeamId) {
-            url += `&where[team][equals]=${selectedTeamId}`
-          }
-          const response = await fetch(url)
-          return response.json()
         }
-
-        const [todoData, inProgressData, doneData] = await Promise.all([
-          fetchColumn(TicketStatus.TODO),
-          fetchColumn(TicketStatus.IN_PROGRESS),
-          fetchColumn(TicketStatus.DONE),
-        ])
-
-        // Combine all tickets
-        const newTickets = [
-          ...(todoData.docs || []),
-          ...(inProgressData.docs || []),
-          ...(doneData.docs || []),
-        ]
-        setTickets(newTickets)
-
-        // Update pagination state for all columns
-        setColumnPagination({
-          [TicketStatus.TODO]: {
-            page: todoData.page ?? 1,
-            totalPages: todoData.totalPages ?? 1,
-            hasNextPage: todoData.hasNextPage ?? false,
-            totalDocs: todoData.totalDocs ?? 0,
-            loadedCount: todoData.docs?.length ?? 0,
-          },
-          [TicketStatus.IN_PROGRESS]: {
-            page: inProgressData.page ?? 1,
-            totalPages: inProgressData.totalPages ?? 1,
-            hasNextPage: inProgressData.hasNextPage ?? false,
-            totalDocs: inProgressData.totalDocs ?? 0,
-            loadedCount: inProgressData.docs?.length ?? 0,
-          },
-          [TicketStatus.DONE]: {
-            page: doneData.page ?? 1,
-            totalPages: doneData.totalPages ?? 1,
-            hasNextPage: doneData.hasNextPage ?? false,
-            totalDocs: doneData.totalDocs ?? 0,
-            loadedCount: doneData.docs?.length ?? 0,
-          },
-        })
+        setColumnPagination(nextPagination)
       } catch (error) {
         console.error('Failed to refetch tickets:', error)
       } finally {
-        setIsRefetching(false)
+        if (!cancelled) setIsRefetching(false)
       }
     }
 
     refetchTickets()
-  }, [selectedProjectId, selectedTeamId])
+
+    return () => {
+      cancelled = true
+    }
+  }, [selectedProjectId, selectedTeamId, statuses, buildColumnUrl])
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -230,22 +251,14 @@ export function KanbanBoard({ initialTickets, projects, teams, initialColumnPagi
   )
 
   // Load more tickets for a specific column
-  const loadMoreTicketsForColumn = useCallback(async (status: TicketStatus) => {
-    const colPag = columnPagination[status]
-    if (!colPag.hasNextPage || loadingColumns[status]) return
+  const loadMoreTicketsForColumn = useCallback(async (column: BoardStatus) => {
+    const colPag = columnPagination[column.key]
+    if (!colPag?.hasNextPage || loadingColumns[column.key]) return
 
-    setLoadingColumns(prev => ({ ...prev, [status]: true }))
+    setLoadingColumns(prev => ({ ...prev, [column.key]: true }))
     try {
       const nextPage = colPag.page + 1
-      let url = `/api/tickets?page=${nextPage}&limit=20&depth=2&sort=sortOrder&where[status][equals]=${status}`
-      if (selectedProjectId) {
-        url += `&where[project][equals]=${selectedProjectId}`
-      }
-      if (selectedTeamId) {
-        url += `&where[team][equals]=${selectedTeamId}`
-      }
-
-      const response = await fetch(url)
+      const response = await fetch(buildColumnUrl(column, nextPage))
       const data = await response.json()
 
       if (data.docs && data.docs.length > 0) {
@@ -256,21 +269,21 @@ export function KanbanBoard({ initialTickets, projects, teams, initialColumnPagi
         setTickets((prev) => [...prev, ...newTickets])
         setColumnPagination(prev => ({
           ...prev,
-          [status]: {
+          [column.key]: {
             page: data.page,
             totalPages: data.totalPages,
             hasNextPage: data.hasNextPage,
             totalDocs: data.totalDocs,
-            loadedCount: prev[status].loadedCount + newTickets.length,
+            loadedCount: (prev[column.key]?.loadedCount ?? 0) + newTickets.length,
           },
         }))
       }
     } catch (error) {
-      console.error(`Failed to load more tickets for ${status}:`, error)
+      console.error(`Failed to load more tickets for ${column.key}:`, error)
     } finally {
-      setLoadingColumns(prev => ({ ...prev, [status]: false }))
+      setLoadingColumns(prev => ({ ...prev, [column.key]: false }))
     }
-  }, [columnPagination, loadingColumns, selectedProjectId, selectedTeamId, tickets])
+  }, [buildColumnUrl, columnPagination, loadingColumns, tickets])
 
   const filteredTickets = useMemo(() => {
     return tickets.filter((ticket) => {
@@ -286,13 +299,13 @@ export function KanbanBoard({ initialTickets, projects, teams, initialColumnPagi
     })
   }, [tickets, selectedProjectId, selectedTeamId])
 
-  const getTicketsByStatus = useCallback(
-    (status: TicketStatus) => {
+  const getTicketsForColumn = useCallback(
+    (column: BoardStatus) => {
       return filteredTickets
-        .filter((ticket) => ticket.status === status)
+        .filter((ticket) => belongsToColumn(ticket, column, knownKeys))
         .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
     },
-    [filteredTickets]
+    [filteredTickets, knownKeys]
   )
 
   const handleDragStart = (event: DragStartEvent) => {
@@ -307,17 +320,18 @@ export function KanbanBoard({ initialTickets, projects, teams, initialColumnPagi
     const activeId = active.id as string
     const overId = over.id as string
 
-    const activeTicket = tickets.find((t) => t.id === activeId)
-    if (!activeTicket) return
+    const draggedTicket = tickets.find((t) => t.id === activeId)
+    if (!draggedTicket) return
 
     // Check if we're over a column
-    const isOverColumn = COLUMNS.some((col) => col.id === overId)
-    if (isOverColumn) {
-      const newStatus = overId as TicketStatus
-      if (activeTicket.status !== newStatus) {
+    const overColumn = statuses.find((col) => col.key === overId)
+    if (overColumn) {
+      // Never move a ticket INTO the orphan column — it is a symptom, not a destination.
+      if (overColumn.isUnknown) return
+      if (draggedTicket.status !== overColumn.key) {
         setTickets((prev) =>
           prev.map((ticket) =>
-            ticket.id === activeId ? { ...ticket, status: newStatus } : ticket
+            ticket.id === activeId ? { ...ticket, status: overColumn.key } : ticket
           )
         )
       }
@@ -328,7 +342,10 @@ export function KanbanBoard({ initialTickets, projects, teams, initialColumnPagi
     const overTicket = tickets.find((t) => t.id === overId)
     if (!overTicket) return
 
-    if (activeTicket.status !== overTicket.status) {
+    // Hovering an orphan ticket must not adopt its unknown status.
+    if (!knownKeys.has(String(overTicket.status))) return
+
+    if (draggedTicket.status !== overTicket.status) {
       setTickets((prev) =>
         prev.map((ticket) =>
           ticket.id === activeId ? { ...ticket, status: overTicket.status } : ticket
@@ -348,18 +365,21 @@ export function KanbanBoard({ initialTickets, projects, teams, initialColumnPagi
 
     if (activeId === overId) return
 
-    const activeTicket = tickets.find((t) => t.id === activeId)
-    if (!activeTicket) return
+    const draggedTicket = tickets.find((t) => t.id === activeId)
+    if (!draggedTicket) return
 
     // Determine the target status
-    let targetStatus = activeTicket.status
-    const isOverColumn = COLUMNS.some((col) => col.id === overId)
-    if (isOverColumn) {
-      targetStatus = overId as TicketStatus
+    let targetStatus = draggedTicket.status
+    const overColumn = statuses.find((col) => col.key === overId)
+    const isOverColumn = Boolean(overColumn)
+    if (overColumn) {
+      if (overColumn.isUnknown) return
+      targetStatus = overColumn.key
     } else {
       const overTicket = tickets.find((t) => t.id === overId)
       if (overTicket) {
-        targetStatus = overTicket.status as TicketStatus
+        if (!knownKeys.has(String(overTicket.status))) return
+        targetStatus = overTicket.status
       }
     }
 
@@ -457,21 +477,23 @@ export function KanbanBoard({ initialTickets, projects, teams, initialColumnPagi
         onDragEnd={handleDragEnd}
       >
         <div className="flex-1 flex gap-4 p-6 overflow-x-auto">
-          {COLUMNS.map((column) => (
+          {statuses.map((column) => (
             <KanbanColumn
-              key={column.id}
-              id={column.id}
-              title={column.title}
-              tickets={getTicketsByStatus(column.id)}
+              key={column.key}
+              id={column.key}
+              title={column.label}
+              color={column.color}
+              isUnknown={column.isUnknown}
+              tickets={getTicketsForColumn(column)}
               onViewTicket={handleViewTicket}
               onDeleteTicket={handleDeleteTicket}
               pagination={{
-                hasNextPage: columnPagination[column.id].hasNextPage,
-                totalDocs: columnPagination[column.id].totalDocs,
-                loadedCount: columnPagination[column.id].loadedCount,
+                hasNextPage: paginationFor(column.key).hasNextPage,
+                totalDocs: paginationFor(column.key).totalDocs,
+                loadedCount: paginationFor(column.key).loadedCount,
               }}
-              isLoadingMore={loadingColumns[column.id]}
-              onLoadMore={() => loadMoreTicketsForColumn(column.id)}
+              isLoadingMore={loadingColumns[column.key] ?? false}
+              onLoadMore={() => loadMoreTicketsForColumn(column)}
             />
           ))}
         </div>
@@ -487,6 +509,8 @@ export function KanbanBoard({ initialTickets, projects, teams, initialColumnPagi
         ticket={editingTicket}
         projects={projects}
         teams={teams}
+        statuses={realStatuses}
+        milestones={milestones}
         allTickets={tickets}
         onSave={handleTicketSaved}
         defaultProjectId={selectedProjectId}
@@ -499,6 +523,8 @@ export function KanbanBoard({ initialTickets, projects, teams, initialColumnPagi
           ticket={viewingTicket}
           projects={projects}
           teams={teams}
+          statuses={realStatuses}
+          milestones={milestones}
           allTickets={tickets}
           onUpdate={handleTicketUpdated}
           onDelete={handleDeleteTicket}

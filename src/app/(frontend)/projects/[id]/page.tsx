@@ -2,6 +2,7 @@ import { ProjectDetail } from '@/components/projects/ProjectDetail'
 import { getPayload } from 'payload'
 import config from '@payload-config'
 import { notFound } from 'next/navigation'
+import { toBoardStatuses } from '@/components/kanban/status-utils'
 
 export const dynamic = 'force-dynamic'
 
@@ -34,10 +35,20 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
       depth: 1,
     })
 
-    // Get teams for dropdown
+    // Team Members for the Assignee dropdown. The slug is still `teams` on purpose —
+    // see collections/TeamMembers.ts.
     const teamsResult = await payload.find({
       collection: 'teams',
       limit: 100,
+    })
+
+    // Workflow states are configurable, so the project's ticket breakdown is built
+    // from the workspace's own states rather than an assumed Todo/In Progress/Done.
+    const statusesResult = await payload.find({
+      collection: 'statuses',
+      limit: 200,
+      depth: 0,
+      sort: 'order',
     })
 
     return (
@@ -45,6 +56,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
         project={project}
         tickets={ticketsResult.docs}
         teams={teamsResult.docs}
+        statuses={toBoardStatuses(statusesResult.docs)}
       />
     )
   } catch {

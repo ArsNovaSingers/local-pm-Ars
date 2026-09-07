@@ -2,50 +2,72 @@
 
 import { useState, useEffect } from 'react'
 import { X, Minimize2, Users } from 'lucide-react'
-import { PROJECT_COLORS } from '@/types/enums'
+import { PROJECT_COLORS, TEAM_MEMBER_ROLE_OPTIONS, TeamMemberRole } from '@/types/enums'
 import { RichTextEditor } from '@/components/ui/RichTextEditor'
+/**
+ * `Team` is the generated type for the `teams` collection, which holds PEOPLE. Slug and
+ * type name are unchanged on purpose — see collections/TeamMembers.ts.
+ */
 import type { Team } from '@/payload-types'
 
-interface TeamModalProps {
+interface TeamMemberModalProps {
   isOpen: boolean
   onClose: () => void
-  team: Team | null
-  onSave: (team: Team) => void
+  teamMember: Team | null
+  onSave: (teamMember: Team) => void
 }
 
-export function TeamModal({ isOpen, onClose, team, onSave }: TeamModalProps) {
+export function TeamMemberModal({ isOpen, onClose, teamMember, onSave }: TeamMemberModalProps) {
+  const team = teamMember
   const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [role, setRole] = useState<string>(TeamMemberRole.MEMBER)
+  const [active, setActive] = useState(true)
   const [description, setDescription] = useState('')
   const [color, setColor] = useState('#6366f1')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isFullScreen, setIsFullScreen] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (team) {
       setName(team.name)
+      setEmail(team.email || '')
+      setRole(String(team.role || TeamMemberRole.MEMBER))
+      setActive(team.active !== false)
       setDescription(team.description as unknown as string || '')
       setColor(team.color as string || '#6366f1')
     } else {
       setName('')
+      setEmail('')
+      setRole(TeamMemberRole.MEMBER)
+      setActive(true)
       setDescription('')
       setColor('#6366f1')
     }
+    setError(null)
     setIsFullScreen(true)
   }, [team, isOpen])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!name.trim()) return
+    if (!name.trim() || !email.trim()) return
 
     setIsSubmitting(true)
+    setError(null)
 
     try {
       const payload = {
         name: name.trim(),
+        // The collection is auth-enabled, so an email is required and must be unique.
+        email: email.trim(),
+        role,
+        active,
         description: description || null,
         color,
       }
 
+      // REST path stays /api/teams — the slug did not change.
       const url = team ? `/api/teams/${team.id}` : '/api/teams'
       const method = team ? 'PATCH' : 'POST'
 
@@ -56,13 +78,15 @@ export function TeamModal({ isOpen, onClose, team, onSave }: TeamModalProps) {
       })
 
       if (!response.ok) {
-        throw new Error('Failed to save team')
+        const body = await response.json().catch(() => null)
+        throw new Error(body?.errors?.[0]?.message || 'Failed to save team member')
       }
 
-      const savedTeam = await response.json()
-      onSave(savedTeam.doc || savedTeam)
-    } catch (error) {
-      console.error('Failed to save team:', error)
+      const savedTeamMember = await response.json()
+      onSave(savedTeamMember.doc || savedTeamMember)
+    } catch (err) {
+      console.error('Failed to save team member:', err)
+      setError(err instanceof Error ? err.message : 'Failed to save team member')
     } finally {
       setIsSubmitting(false)
     }
@@ -84,7 +108,7 @@ export function TeamModal({ isOpen, onClose, team, onSave }: TeamModalProps) {
         {/* Header */}
         <div className="flex-none flex items-center justify-between px-6 py-3 border-b border-border/30">
           <span className="text-sm text-muted-foreground">
-            {team ? 'Edit Team' : 'New Team'}
+            {team ? 'Edit Team Member' : 'New Team Member'}
           </span>
           <div className="flex items-center gap-1">
             <button
@@ -120,11 +144,29 @@ export function TeamModal({ isOpen, onClose, team, onSave }: TeamModalProps) {
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="Team name"
+                    placeholder="Full name"
                     className="flex-1 bg-transparent text-2xl font-bold text-foreground placeholder:text-muted-foreground/40 border-none px-0 py-2 focus:ring-0 focus:outline-none"
                     autoFocus
                     required
                   />
+                </div>
+
+                {/* Email */}
+                <div className="mb-6">
+                  <label className="text-xs font-medium text-muted-foreground mb-2 block">
+                    Email
+                  </label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="name@example.com"
+                    className="w-full bg-secondary/40 border border-border/50 rounded-md px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    required
+                  />
+                  <p className="text-xs text-muted-foreground mt-1.5">
+                    Required — this collection is auth-enabled, so every person needs a unique address.
+                  </p>
                 </div>
 
                 {/* Description */}
@@ -132,14 +174,52 @@ export function TeamModal({ isOpen, onClose, team, onSave }: TeamModalProps) {
                   <RichTextEditor
                     value={description}
                     onChange={setDescription}
-                    placeholder="Describe the team's responsibilities, goals, and expertise..."
+                    placeholder="What this person does, and anything worth knowing about their work..."
                   />
                 </div>
+
+                {error && (
+                  <p className="text-sm text-destructive mb-4" role="alert">
+                    {error}
+                  </p>
+                )}
               </div>
 
               {/* Sidebar */}
               <div className={`${isFullScreen ? 'w-72 border-l border-border/30 p-6 bg-secondary/10' : 'p-8 pt-0'}`}>
                 <div className="space-y-6">
+                  {/* Role */}
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-2 block">Role</label>
+                    <select
+                      value={role}
+                      onChange={(e) => setRole(e.target.value)}
+                      className="w-full bg-secondary/40 border border-border/50 rounded-md px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer"
+                    >
+                      {TEAM_MEMBER_ROLE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Active */}
+                  <div>
+                    <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={active}
+                        onChange={(e) => setActive(e.target.checked)}
+                        className="rounded border-border/50"
+                      />
+                      Active
+                    </label>
+                    <p className="text-xs text-muted-foreground mt-1.5">
+                      Inactive people keep their history but drop out of assignment pickers.
+                    </p>
+                  </div>
+
                   {/* Color */}
                   <div>
                     <label className="text-xs font-medium text-muted-foreground mb-3 block">Color</label>
@@ -175,7 +255,7 @@ export function TeamModal({ isOpen, onClose, team, onSave }: TeamModalProps) {
           <button
             type="submit"
             form="team-form"
-            disabled={isSubmitting || !name.trim()}
+            disabled={isSubmitting || !name.trim() || !email.trim()}
             className="px-5 py-2 text-sm font-medium text-primary-foreground bg-primary hover:bg-primary/90 rounded-md transition-all disabled:opacity-50"
           >
             {isSubmitting ? 'Saving...' : team ? 'Save' : 'Create'}
