@@ -598,7 +598,7 @@ const tools: Tool[] = [
       properties: {
         id: {
           type: 'string',
-          description: 'The ticket ID to update',
+          description: 'The ticket to update: its Mongo id (e.g. "6a9e...de1") or its human key (e.g. "TKT-1"). Alias: ticketId.',
         },
         title: {
           type: 'string',
@@ -669,7 +669,7 @@ const tools: Tool[] = [
       properties: {
         id: {
           type: 'string',
-          description: 'The ticket ID to move',
+          description: 'The ticket to move: its Mongo id or its human key (e.g. "TKT-1"). Alias: ticketId.',
         },
         status: {
           type: 'string',
@@ -688,7 +688,7 @@ const tools: Tool[] = [
       properties: {
         id: {
           type: 'string',
-          description: 'The ticket ID to delete',
+          description: 'The ticket to delete: its Mongo id or its human key (e.g. "TKT-1"). Alias: ticketId.',
         },
       },
       required: ['id'],
@@ -762,10 +762,75 @@ const tools: Tool[] = [
 ];
 
 // Tool handlers
+/**
+ * Accept the parameter names callers actually reach for, not only the ones the schema declares.
+ *
+ * Why this exists: the ticket tools declare `id`, the subtask tools declare `ticketId`, and
+ * `create_ticket` declares `project` while `list_tickets` declares `projectId`. Nothing enforces
+ * `required` before the handler runs, so a caller who guesses the wrong (but entirely reasonable)
+ * name previously got a request to `/tickets/undefined` — a bare 404 that is indistinguishable
+ * from a genuinely missing record. That trap cost real debugging time on 2026-09-04 and again on
+ * 2026-09-07. Normalising here is cheaper than everyone rediscovering it.
+ */
+const ARG_ALIASES: Record<string, Record<string, string>> = {
+  get_ticket:     { ticketId: 'id', ticket: 'id' },
+  update_ticket:  { ticketId: 'id', ticket: 'id', teamId: 'team', projectId: 'project' },
+  move_ticket:    { ticketId: 'id', ticket: 'id' },
+  delete_ticket:  { ticketId: 'id', ticket: 'id' },
+  create_ticket:  { projectId: 'project', teamId: 'team' },
+  list_tickets:   { project: 'projectId', team: 'teamId' },
+  get_board:      { project: 'projectId', team: 'teamId' },
+  toggle_subtask: { id: 'ticketId', ticket: 'ticketId' },
+  add_subtask:    { id: 'ticketId', ticket: 'ticketId' },
+  get_project:    { projectId: 'id', project: 'id' },
+  update_project: { projectId: 'id', project: 'id' },
+  delete_project: { projectId: 'id', project: 'id' },
+  get_team:       { teamId: 'id', team: 'id' },
+  update_team:    { teamId: 'id', team: 'id' },
+  delete_team:    { teamId: 'id', team: 'id' },
+};
+
+function normalizeArgs(name: string, args: Record<string, unknown>): Record<string, unknown> {
+  const aliases = ARG_ALIASES[name];
+  if (!aliases) return args;
+  const out = { ...args };
+  for (const [from, to] of Object.entries(aliases)) {
+    if (out[from] !== undefined && out[to] === undefined) {
+      out[to] = out[from];
+      delete out[from];
+    }
+  }
+  return out;
+}
+
+/**
+ * Resolve either a Mongo document id or a human ticket key ("TKT-1", "HUB-16") to a Mongo id.
+ * People and agents both refer to tickets by their key; only the id addresses the REST route.
+ */
+async function resolveTicketId(value: unknown, toolName: string): Promise<string> {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!raw) {
+    throw new Error(
+      `${toolName}: no ticket identifier supplied. Pass "id" — the ticket's Mongo id (e.g. ` +
+      `"6a9eedc588c3e6fef1696de1") or its human key (e.g. "TKT-1"). "ticketId" is accepted as an alias.`
+    );
+  }
+  if (/^[0-9a-f]{24}$/i.test(raw)) return raw;
+  const found = await apiRequest(
+    `/tickets?limit=1&depth=0&where[ticketId][equals]=${encodeURIComponent(raw)}`
+  ) as { docs?: Array<{ id?: string }> };
+  const id = found.docs?.[0]?.id;
+  if (!id) {
+    throw new Error(`${toolName}: no ticket found with id or key "${raw}".`);
+  }
+  return id;
+}
+
 async function handleToolCall(
   name: string,
   args: Record<string, unknown>
 ): Promise<unknown> {
+  args = normalizeArgs(name, args);
   switch (name) {
     // Projects
     case 'list_projects': {
@@ -958,7 +1023,8 @@ async function handleToolCall(
       });
     }
     case 'get_ticket': {
-      return apiRequest(`/tickets/${args.id}?depth=1`);
+      const id = await resolveTicketId(args.id, 'get_ticket');
+      return apiRequest(`/tickets/${id}?depth=1`);
     }
     case 'create_ticket': {
       return apiRequest('/tickets', 'POST', {
@@ -975,7 +1041,7 @@ async function handleToolCall(
       });
     }
     case 'update_ticket': {
-      const id = args.id;
+      const id = await resolveTicketId(args.id, 'update_ticket');
       const updates: Record<string, unknown> = {};
       if (args.title) updates.title = args.title;
       if (args.description !== undefined) updates.description = args.description;
@@ -989,12 +1055,14 @@ async function handleToolCall(
       return apiRequest(`/tickets/${id}`, 'PATCH', updates);
     }
     case 'move_ticket': {
-      return apiRequest(`/tickets/${args.id}`, 'PATCH', {
+      const id = await resolveTicketId(args.id, 'move_ticket');
+      return apiRequest(`/tickets/${id}`, 'PATCH', {
         status: toPayloadValue(args.status as string),
       });
     }
     case 'delete_ticket': {
-      return apiRequest(`/tickets/${args.id}`, 'DELETE');
+      const id = await resolveTicketId(args.id, 'delete_ticket');
+      return apiRequest(`/tickets/${id}`, 'DELETE');
     }
 
     // Board
@@ -1036,7 +1104,8 @@ async function handleToolCall(
 
     // Subtasks
     case 'toggle_subtask': {
-      const ticket = await apiRequest(`/tickets/${args.ticketId}`) as {
+      const ticketId = await resolveTicketId(args.ticketId, 'toggle_subtask');
+      const ticket = await apiRequest(`/tickets/${ticketId}`) as {
         subtasks?: Array<{ title: string; completed: boolean }>
       };
       const subtasks = ticket.subtasks || [];
@@ -1047,15 +1116,16 @@ async function handleToolCall(
       }
 
       subtasks[index].completed = !subtasks[index].completed;
-      return apiRequest(`/tickets/${args.ticketId}`, 'PATCH', { subtasks });
+      return apiRequest(`/tickets/${ticketId}`, 'PATCH', { subtasks });
     }
     case 'add_subtask': {
-      const ticket = await apiRequest(`/tickets/${args.ticketId}`) as {
+      const ticketId = await resolveTicketId(args.ticketId, 'add_subtask');
+      const ticket = await apiRequest(`/tickets/${ticketId}`) as {
         subtasks?: Array<{ title: string; completed: boolean }>
       };
       const subtasks = ticket.subtasks || [];
       subtasks.push({ title: args.title as string, completed: false });
-      return apiRequest(`/tickets/${args.ticketId}`, 'PATCH', { subtasks });
+      return apiRequest(`/tickets/${ticketId}`, 'PATCH', { subtasks });
     }
 
     default:
