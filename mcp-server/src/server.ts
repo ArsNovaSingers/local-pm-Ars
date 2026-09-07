@@ -914,7 +914,7 @@ const tools: Tool[] = [
       properties: {
         id: {
           type: 'string',
-          description: 'The ticket ID to update',
+          description: 'The ticket to update: its Mongo id (e.g. "6a9e...de1") or its human key (e.g. "TKT-1"). Alias: ticketId.',
         },
         title: {
           type: 'string',
@@ -1004,7 +1004,7 @@ const tools: Tool[] = [
       properties: {
         id: {
           type: 'string',
-          description: 'The ticket ID to move',
+          description: 'The ticket to move: its Mongo id or its human key (e.g. "TKT-1"). Alias: ticketId.',
         },
         status: {
           type: 'string',
@@ -1022,7 +1022,7 @@ const tools: Tool[] = [
       properties: {
         id: {
           type: 'string',
-          description: 'The ticket ID to delete',
+          description: 'The ticket to delete: its Mongo id or its human key (e.g. "TKT-1"). Alias: ticketId.',
         },
       },
       required: ['id'],
@@ -1230,7 +1230,7 @@ const tools: Tool[] = [
   // ============== DEPENDENCIES ==============
   {
     name: 'link_tickets',
-    description: 'Add blockers to a ticket WITHOUT replacing the ones already there. This is the safe way to record a dependency: update_ticket.blockedBy overwrites the whole array, so two agents adding different blockers seconds apart silently lose one of them. This tool reads the current list, unions the new IDs into it and writes the result back, so it is additive and repeating it is harmless. The backend rejects an edge that would close a dependency cycle. Parameter naming: the ticket being blocked is "ticket"; the blockers are "blockedBy". A wrong name 404s indistinguishably from a missing ticket.',
+    description: 'Add blockers to a ticket WITHOUT replacing the ones already there. This is the safe way to record a dependency: update_ticket.blockedBy overwrites the whole array, so two agents adding different blockers seconds apart silently lose one of them. This tool reads the current list, unions the new IDs into it and writes the result back, so it is additive and repeating it is harmless. The backend rejects an edge that would close a dependency cycle. Parameter naming: the ticket being blocked is "ticket"; the blockers are "blockedBy". A wrong name 404s indistinguishably from a missing ticket. The `ticket` parameter accepts its Mongo id or its human key (e.g. "TKT-1"); `id` and `ticketId` are accepted as aliases.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1251,7 +1251,7 @@ const tools: Tool[] = [
   },
   {
     name: 'unlink_tickets',
-    description: 'Remove specific blockers from a ticket, leaving the rest of its blockedBy list intact — the inverse of link_tickets, and the safe alternative to update_ticket.blockedBy, which replaces the whole array. IDs that are not present are ignored. Parameter naming: the blocked ticket is "ticket"; the blockers to drop are "blockedBy". A wrong name 404s indistinguishably from a missing ticket.',
+    description: 'Remove specific blockers from a ticket, leaving the rest of its blockedBy list intact — the inverse of link_tickets, and the safe alternative to update_ticket.blockedBy, which replaces the whole array. IDs that are not present are ignored. Parameter naming: the blocked ticket is "ticket"; the blockers to drop are "blockedBy". A wrong name 404s indistinguishably from a missing ticket. The `ticket` parameter accepts its Mongo id or its human key (e.g. "TKT-1"); `id` and `ticketId` are accepted as aliases.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1290,11 +1290,84 @@ const TOOL_ALIASES: Record<string, string> = {
 };
 
 // Tool handlers
+/**
+ * Accept the parameter names callers actually reach for, not only the ones the schema declares.
+ *
+ * Why this exists: the ticket tools declare `id`, the subtask tools declare `ticketId`, and
+ * `create_ticket` declares `project` while `list_tickets` declares `projectId`. Nothing enforces
+ * `required` before the handler runs, so a caller who guesses the wrong (but entirely reasonable)
+ * name previously got a request to `/tickets/undefined` — a bare 404 that is indistinguishable
+ * from a genuinely missing record. That trap cost real debugging time on 2026-09-04 and again on
+ * 2026-09-07. Normalising here is cheaper than everyone rediscovering it.
+ */
+const ARG_ALIASES: Record<string, Record<string, string>> = {
+  get_ticket:     { ticketId: 'id', ticket: 'id' },
+  update_ticket:  { ticketId: 'id', ticket: 'id', teamId: 'team', projectId: 'project' },
+  move_ticket:    { ticketId: 'id', ticket: 'id' },
+  delete_ticket:  { ticketId: 'id', ticket: 'id' },
+  create_ticket:  { projectId: 'project', teamId: 'team' },
+  list_tickets:   { project: 'projectId', team: 'teamId' },
+  get_board:      { project: 'projectId', team: 'teamId' },
+  toggle_subtask: { id: 'ticketId', ticket: 'ticketId' },
+  add_subtask:    { id: 'ticketId', ticket: 'ticketId' },
+  get_project:    { projectId: 'id', project: 'id' },
+  update_project: { projectId: 'id', project: 'id' },
+  delete_project: { projectId: 'id', project: 'id' },
+  get_team:       { teamId: 'id', team: 'id' },
+  update_team:    { teamId: 'id', team: 'id' },
+  delete_team:    { teamId: 'id', team: 'id' },
+  link_tickets:   { id: 'ticket', ticketId: 'ticket' },
+  unlink_tickets: { id: 'ticket', ticketId: 'ticket' },
+  update_milestone: { milestoneId: 'id', milestone: 'id' },
+  delete_milestone: { milestoneId: 'id', milestone: 'id' },
+  list_milestones:  { project: 'projectId' },
+};
+
+function normalizeArgs(name: string, args: Record<string, unknown>): Record<string, unknown> {
+  const aliases = ARG_ALIASES[name];
+  if (!aliases) return args;
+  const out = { ...args };
+  for (const [from, to] of Object.entries(aliases)) {
+    if (out[from] !== undefined && out[to] === undefined) {
+      out[to] = out[from];
+      delete out[from];
+    }
+  }
+  return out;
+}
+
+/**
+ * Resolve either a Mongo document id or a human ticket key ("TKT-1", "HUB-16") to a Mongo id.
+ * People and agents both refer to tickets by their key; only the id addresses the REST route.
+ */
+async function resolveTicketId(value: unknown, toolName: string): Promise<string> {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!raw) {
+    throw new Error(
+      `${toolName}: no ticket identifier supplied. Pass "id" — the ticket's Mongo id (e.g. ` +
+      `"6a9eedc588c3e6fef1696de1") or its human key (e.g. "TKT-1"). "ticketId" is accepted as an alias.`
+    );
+  }
+  if (/^[0-9a-f]{24}$/i.test(raw)) return raw;
+  const found = await apiRequest(
+    `/tickets?limit=1&depth=0&where[ticketId][equals]=${encodeURIComponent(raw)}`
+  ) as { docs?: Array<{ id?: string }> };
+  const id = found.docs?.[0]?.id;
+  if (!id) {
+    throw new Error(`${toolName}: no ticket found with id or key "${raw}".`);
+  }
+  return id;
+}
+
 async function handleToolCall(
   name: string,
   args: Record<string, unknown>
 ): Promise<unknown> {
-  switch (TOOL_ALIASES[name] || name) {
+  // Resolve the alias FIRST, then normalise arguments against the resolved name — so a
+  // call to `update_team_member` gets `update_team`'s parameter aliases too.
+  const tool = TOOL_ALIASES[name] || name;
+  args = normalizeArgs(tool, args);
+  switch (tool) {
     // Projects
     case 'list_projects': {
       const limit = (args.limit as number) || 20;
@@ -1514,7 +1587,8 @@ async function handleToolCall(
       });
     }
     case 'get_ticket': {
-      return apiRequest(`/tickets/${qs(args.id)}?depth=1`);
+      const id = await resolveTicketId(args.id, 'get_ticket');
+      return apiRequest(`/tickets/${qs(id)}?depth=1`);
     }
     case 'create_ticket': {
       // `status` is left off entirely when the caller omits it, so the backend applies
@@ -1538,7 +1612,7 @@ async function handleToolCall(
       return apiRequest('/tickets', 'POST', body);
     }
     case 'update_ticket': {
-      const id = args.id;
+      const id = await resolveTicketId(args.id, 'update_ticket');
       const updates: Record<string, unknown> = {};
       if (args.title) updates.title = args.title;
       if (args.description !== undefined) updates.description = args.description;
@@ -1555,12 +1629,16 @@ async function handleToolCall(
       return apiRequest(`/tickets/${qs(id)}`, 'PATCH', updates);
     }
     case 'move_ticket': {
-      return apiRequest(`/tickets/${qs(args.id)}`, 'PATCH', {
+      const id = await resolveTicketId(args.id, 'move_ticket');
+      // toStatusKey, not toPayloadValue: workflow states are configurable now, so an
+      // unrecognised status must pass through rather than be rejected.
+      return apiRequest(`/tickets/${qs(id)}`, 'PATCH', {
         status: toStatusKey(args.status as string),
       });
     }
     case 'delete_ticket': {
-      return apiRequest(`/tickets/${qs(args.id)}`, 'DELETE');
+      const id = await resolveTicketId(args.id, 'delete_ticket');
+      return apiRequest(`/tickets/${qs(id)}`, 'DELETE');
     }
 
     // Board
@@ -1652,7 +1730,8 @@ async function handleToolCall(
 
     // Subtasks
     case 'toggle_subtask': {
-      const ticket = await apiRequest(`/tickets/${qs(args.ticketId)}`) as {
+      const ticketId = await resolveTicketId(args.ticketId, 'toggle_subtask');
+      const ticket = await apiRequest(`/tickets/${qs(ticketId)}`) as {
         subtasks?: Array<{ title: string; completed: boolean }>
       };
       const subtasks = ticket.subtasks || [];
@@ -1663,15 +1742,16 @@ async function handleToolCall(
       }
 
       subtasks[index].completed = !subtasks[index].completed;
-      return apiRequest(`/tickets/${qs(args.ticketId)}`, 'PATCH', { subtasks });
+      return apiRequest(`/tickets/${qs(ticketId)}`, 'PATCH', { subtasks });
     }
     case 'add_subtask': {
-      const ticket = await apiRequest(`/tickets/${qs(args.ticketId)}`) as {
+      const ticketId = await resolveTicketId(args.ticketId, 'add_subtask');
+      const ticket = await apiRequest(`/tickets/${qs(ticketId)}`) as {
         subtasks?: Array<{ title: string; completed: boolean }>
       };
       const subtasks = ticket.subtasks || [];
       subtasks.push({ title: args.title as string, completed: false });
-      return apiRequest(`/tickets/${qs(args.ticketId)}`, 'PATCH', { subtasks });
+      return apiRequest(`/tickets/${qs(ticketId)}`, 'PATCH', { subtasks });
     }
 
     // Statuses
@@ -1785,7 +1865,7 @@ async function handleToolCall(
       // Read-modify-write, deliberately: update_ticket.blockedBy replaces the whole
       // array, so two agents adding different blockers seconds apart lose one of them.
       // Union the incoming ids into whatever is already stored instead.
-      const ticketId = args.ticket as string;
+      const ticketId = await resolveTicketId(args.ticket, 'link_tickets');
       const incoming = toIdList(args.blockedBy);
       const current = await apiRequest(`/tickets/${qs(ticketId)}?depth=0`) as {
         blockedBy?: unknown;
@@ -1819,7 +1899,7 @@ async function handleToolCall(
     }
     case 'unlink_tickets': {
       // The inverse of link_tickets: drop only the listed ids, keep the rest.
-      const ticketId = args.ticket as string;
+      const ticketId = await resolveTicketId(args.ticket, 'unlink_tickets');
       const outgoing = new Set(toIdList(args.blockedBy));
       const current = await apiRequest(`/tickets/${qs(ticketId)}?depth=0`) as {
         blockedBy?: unknown;
