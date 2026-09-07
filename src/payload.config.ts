@@ -4,20 +4,28 @@ import path from 'path'
 import { buildConfig } from 'payload'
 import { fileURLToPath } from 'url'
 
+import { FieldDefinitions } from './collections/FieldDefinitions'
+import { Milestones } from './collections/Milestones'
 import { Projects } from './collections/Projects'
-import { Teams } from './collections/Teams'
+import { Statuses } from './collections/Statuses'
+import { TeamMembers } from './collections/TeamMembers'
 import { Tickets } from './collections/Tickets'
+import { viewsScopeEndpoint } from './lib/endpoints'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
 
 export default buildConfig({
   admin: {
+    // Team Members is the auth collection: it is what lets Local PM run anywhere
+    // rather than only behind a network-level gate, and what gives writes an actor.
+    user: TeamMembers.slug,
     importMap: {
       baseDir: path.resolve(dirname),
     },
   },
-  collections: [Projects, Teams, Tickets],
+  collections: [Projects, TeamMembers, Tickets, Statuses, Milestones, FieldDefinitions],
+  endpoints: [viewsScopeEndpoint],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',
   typescript: {

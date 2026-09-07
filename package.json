@@ -12,7 +12,9 @@
     "payload": "cross-env NODE_OPTIONS=--no-deprecation payload",
     "start": "cross-env NODE_OPTIONS=--no-deprecation next start",
     "seed": "cross-env NODE_OPTIONS=--no-deprecation node --import tsx src/seeds/seed-runner.ts",
-    "reseed": "npm run seed"
+    "reseed": "npm run seed",
+    "migrate:phase0": "cross-env NODE_OPTIONS=--no-deprecation node --import tsx src/seeds/phase0-migrate.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

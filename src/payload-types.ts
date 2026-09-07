@@ -63,15 +63,17 @@ export type SupportedTimezones =
 
 export interface Config {
   auth: {
-    users: UserAuthOperations;
+    teams: TeamAuthOperations;
   };
   blocks: {};
   collections: {
     projects: Project;
     teams: Team;
     tickets: Ticket;
+    statuses: Status;
+    milestones: Milestone;
+    'field-definitions': FieldDefinition;
     'payload-kv': PayloadKv;
-    users: User;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
     'payload-migrations': PayloadMigration;
@@ -81,8 +83,10 @@ export interface Config {
     projects: ProjectsSelect<false> | ProjectsSelect<true>;
     teams: TeamsSelect<false> | TeamsSelect<true>;
     tickets: TicketsSelect<false> | TicketsSelect<true>;
+    statuses: StatusesSelect<false> | StatusesSelect<true>;
+    milestones: MilestonesSelect<false> | MilestonesSelect<true>;
+    'field-definitions': FieldDefinitionsSelect<false> | FieldDefinitionsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
-    users: UsersSelect<false> | UsersSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
     'payload-migrations': PayloadMigrationsSelect<false> | PayloadMigrationsSelect<true>;
@@ -94,15 +98,15 @@ export interface Config {
   globals: {};
   globalsSelect: {};
   locale: null;
-  user: User & {
-    collection: 'users';
+  user: Team & {
+    collection: 'teams';
   };
   jobs: {
     tasks: unknown;
     workflows: unknown;
   };
 }
-export interface UserAuthOperations {
+export interface TeamAuthOperations {
   forgotPassword: {
     email: string;
     password: string;
@@ -128,6 +132,14 @@ export interface UserAuthOperations {
  */
 export interface Project {
   id: string;
+  /**
+   * The Team Member who created this. Empty for records written before actor tracking, or by an unauthenticated caller.
+   */
+  createdBy?: (string | null) | Team;
+  /**
+   * The Team Member who last changed this.
+   */
+  updatedBy?: (string | null) | Team;
   /**
    * The name of the project
    */
@@ -171,6 +183,9 @@ export interface Project {
         | 'box'
         | 'layers'
         | 'database'
+        | 'megaphone'
+        | 'cloud'
+        | 'users'
       )
     | null;
   /**
@@ -185,6 +200,7 @@ export interface Project {
         | '#ec4899'
         | '#ef4444'
         | '#f97316'
+        | '#f59e0b'
         | '#eab308'
         | '#22c55e'
         | '#14b8a6'
@@ -204,7 +220,7 @@ export interface Project {
   createdAt: string;
 }
 /**
- * Teams group related work within a project
+ * People who do the work. Stored under the slug "teams" for compatibility — the concept is a person, not a group.
  *
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "teams".
@@ -212,33 +228,43 @@ export interface Project {
 export interface Team {
   id: string;
   /**
-   * The name of the team
+   * Display name, e.g. Kimberly Brody
    */
   name: string;
   /**
-   * Brief description of the team
+   * Up to 3 characters for compact avatars. Derived from the name when empty.
    */
-  description?: {
-    root: {
-      type: string;
-      children: {
-        type: any;
-        version: number;
-        [k: string]: unknown;
-      }[];
-      direction: ('ltr' | 'rtl') | null;
-      format: 'left' | 'start' | 'center' | 'right' | 'end' | 'justify' | '';
-      indent: number;
-      version: number;
-    };
-    [k: string]: unknown;
-  } | null;
+  initials?: string | null;
   /**
-   * Color for team identification
+   * admin can delete; member is an ordinary person; agent is an automated caller and should hold an API key rather than a password.
    */
+  role: 'admin' | 'member' | 'agent';
+  /**
+   * Inactive members keep their history but drop out of assignment pickers
+   */
+  active?: boolean | null;
   color?: string | null;
+  description?: string | null;
   updatedAt: string;
   createdAt: string;
+  enableAPIKey?: boolean | null;
+  apiKey?: string | null;
+  apiKeyIndex?: string | null;
+  email: string;
+  resetPasswordToken?: string | null;
+  resetPasswordExpiration?: string | null;
+  salt?: string | null;
+  hash?: string | null;
+  loginAttempts?: number | null;
+  lockUntil?: string | null;
+  sessions?:
+    | {
+        id: string;
+        createdAt?: string | null;
+        expiresAt: string;
+      }[]
+    | null;
+  password?: string | null;
 }
 /**
  * Individual work items within projects
@@ -275,9 +301,9 @@ export interface Ticket {
     [k: string]: unknown;
   } | null;
   /**
-   * Current status of the ticket
+   * The `key` of a row in the Statuses collection. This is deliberately a free string rather than a fixed list: workflow states are configurable per workspace.
    */
-  status: 'TODO' | 'IN_PROGRESS' | 'DONE';
+  status: string;
   /**
    * Priority level of the ticket
    */
@@ -287,13 +313,17 @@ export interface Ticket {
    */
   project: string | Project;
   /**
-   * The team responsible for this ticket
+   * The Team Member responsible for this ticket
    */
   team?: (string | null) | Team;
   /**
    * Tickets that must be completed before this ticket can be worked on
    */
   blockedBy?: (string | Ticket)[] | null;
+  /**
+   * The dated marker this work is aimed at
+   */
+  milestone?: (string | null) | Milestone;
   /**
    * Labels for categorization
    */
@@ -304,6 +334,10 @@ export interface Ticket {
         id?: string | null;
       }[]
     | null;
+  /**
+   * When work is planned to start. With a due date this draws a bar on the timeline; without one the ticket shows as a milestone diamond on its due date rather than a fabricated bar.
+   */
+  startDate?: string | null;
   /**
    * When this ticket should be completed
    */
@@ -319,9 +353,113 @@ export interface Ticket {
       }[]
     | null;
   /**
+   * Values for the workspace-defined fields in the Custom Fields collection. Domain vocabulary lives here rather than in the schema.
+   */
+  customFields?:
+    | {
+        key: string;
+        value?: string | null;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * The Team Member who created this. Empty for records written before actor tracking, or by an unauthenticated caller.
+   */
+  createdBy?: (string | null) | Team;
+  /**
+   * The Team Member who last changed this.
+   */
+  updatedBy?: (string | null) | Team;
+  /**
    * Order within the column
    */
   sortOrder?: number | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * Dated markers work is planned against. Rendered as vertical lines on the timeline.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "milestones".
+ */
+export interface Milestone {
+  id: string;
+  name: string;
+  date: string;
+  color?: string | null;
+  description?: string | null;
+  /**
+   * Leave empty for a milestone that applies across every project
+   */
+  project?: (string | null) | Project;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * The workflow states this workspace uses. Board columns are built from these.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "statuses".
+ */
+export interface Status {
+  id: string;
+  /**
+   * Stable machine value stored on tickets, e.g. IN_PROGRESS. Changing it after tickets exist orphans them — add a new status instead.
+   */
+  key: string;
+  /**
+   * Shown on the board column and the ticket
+   */
+  label: string;
+  color?: string | null;
+  /**
+   * Left-to-right position on the board
+   */
+  order: number;
+  /**
+   * New tickets land here when no status is given. Exactly one status should have this set.
+   */
+  isDefault?: boolean | null;
+  /**
+   * Marks work as finished. Dependency logic reads this: a ticket is "ready" when every blocker sits in a done status.
+   */
+  isDone?: boolean | null;
+  /**
+   * Marks work as waiting on something. Used to distinguish waiting from not-started.
+   */
+  isBlocked?: boolean | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * Extra fields this workspace wants on its tickets.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "field-definitions".
+ */
+export interface FieldDefinition {
+  id: string;
+  /**
+   * Stable machine value stored on tickets, e.g. voice_part
+   */
+  key: string;
+  label: string;
+  type: 'text' | 'number' | 'date' | 'select' | 'checkbox' | 'url';
+  /**
+   * Only used when type is Select
+   */
+  options?:
+    | {
+        value: string;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * Leave empty to apply this field to every project
+   */
+  project?: (string | null) | Project;
+  description?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -344,30 +482,6 @@ export interface PayloadKv {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "users".
- */
-export interface User {
-  id: string;
-  updatedAt: string;
-  createdAt: string;
-  email: string;
-  resetPasswordToken?: string | null;
-  resetPasswordExpiration?: string | null;
-  salt?: string | null;
-  hash?: string | null;
-  loginAttempts?: number | null;
-  lockUntil?: string | null;
-  sessions?:
-    | {
-        id: string;
-        createdAt?: string | null;
-        expiresAt: string;
-      }[]
-    | null;
-  password?: string | null;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-locked-documents".
  */
 export interface PayloadLockedDocument {
@@ -386,13 +500,21 @@ export interface PayloadLockedDocument {
         value: string | Ticket;
       } | null)
     | ({
-        relationTo: 'users';
-        value: string | User;
+        relationTo: 'statuses';
+        value: string | Status;
+      } | null)
+    | ({
+        relationTo: 'milestones';
+        value: string | Milestone;
+      } | null)
+    | ({
+        relationTo: 'field-definitions';
+        value: string | FieldDefinition;
       } | null);
   globalSlug?: string | null;
   user: {
-    relationTo: 'users';
-    value: string | User;
+    relationTo: 'teams';
+    value: string | Team;
   };
   updatedAt: string;
   createdAt: string;
@@ -404,8 +526,8 @@ export interface PayloadLockedDocument {
 export interface PayloadPreference {
   id: string;
   user: {
-    relationTo: 'users';
-    value: string | User;
+    relationTo: 'teams';
+    value: string | Team;
   };
   key?: string | null;
   value?:
@@ -436,6 +558,8 @@ export interface PayloadMigration {
  * via the `definition` "projects_select".
  */
 export interface ProjectsSelect<T extends boolean = true> {
+  createdBy?: T;
+  updatedBy?: T;
   name?: T;
   prefix?: T;
   description?: T;
@@ -452,58 +576,16 @@ export interface ProjectsSelect<T extends boolean = true> {
  */
 export interface TeamsSelect<T extends boolean = true> {
   name?: T;
-  description?: T;
+  initials?: T;
+  role?: T;
+  active?: T;
   color?: T;
-  updatedAt?: T;
-  createdAt?: T;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "tickets_select".
- */
-export interface TicketsSelect<T extends boolean = true> {
-  ticketId?: T;
-  title?: T;
   description?: T;
-  status?: T;
-  priority?: T;
-  project?: T;
-  team?: T;
-  blockedBy?: T;
-  labels?:
-    | T
-    | {
-        name?: T;
-        color?: T;
-        id?: T;
-      };
-  dueDate?: T;
-  subtasks?:
-    | T
-    | {
-        title?: T;
-        completed?: T;
-        id?: T;
-      };
-  sortOrder?: T;
   updatedAt?: T;
   createdAt?: T;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "payload-kv_select".
- */
-export interface PayloadKvSelect<T extends boolean = true> {
-  key?: T;
-  data?: T;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "users_select".
- */
-export interface UsersSelect<T extends boolean = true> {
-  updatedAt?: T;
-  createdAt?: T;
+  enableAPIKey?: T;
+  apiKey?: T;
+  apiKeyIndex?: T;
   email?: T;
   resetPasswordToken?: T;
   resetPasswordExpiration?: T;
@@ -518,6 +600,104 @@ export interface UsersSelect<T extends boolean = true> {
         createdAt?: T;
         expiresAt?: T;
       };
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "tickets_select".
+ */
+export interface TicketsSelect<T extends boolean = true> {
+  ticketId?: T;
+  title?: T;
+  description?: T;
+  status?: T;
+  priority?: T;
+  project?: T;
+  team?: T;
+  blockedBy?: T;
+  milestone?: T;
+  labels?:
+    | T
+    | {
+        name?: T;
+        color?: T;
+        id?: T;
+      };
+  startDate?: T;
+  dueDate?: T;
+  subtasks?:
+    | T
+    | {
+        title?: T;
+        completed?: T;
+        id?: T;
+      };
+  customFields?:
+    | T
+    | {
+        key?: T;
+        value?: T;
+        id?: T;
+      };
+  createdBy?: T;
+  updatedBy?: T;
+  sortOrder?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "statuses_select".
+ */
+export interface StatusesSelect<T extends boolean = true> {
+  key?: T;
+  label?: T;
+  color?: T;
+  order?: T;
+  isDefault?: T;
+  isDone?: T;
+  isBlocked?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "milestones_select".
+ */
+export interface MilestonesSelect<T extends boolean = true> {
+  name?: T;
+  date?: T;
+  color?: T;
+  description?: T;
+  project?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "field-definitions_select".
+ */
+export interface FieldDefinitionsSelect<T extends boolean = true> {
+  key?: T;
+  label?: T;
+  type?: T;
+  options?:
+    | T
+    | {
+        value?: T;
+        id?: T;
+      };
+  project?: T;
+  description?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "payload-kv_select".
+ */
+export interface PayloadKvSelect<T extends boolean = true> {
+  key?: T;
+  data?: T;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema

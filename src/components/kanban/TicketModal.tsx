@@ -1,17 +1,22 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { X, Plus, Trash2, CheckSquare, Square, Ban, Calendar, Tag, Users, FolderKanban, Minimize2 } from 'lucide-react'
-import { TicketStatus, TicketPriority, TICKET_STATUS_OPTIONS, TICKET_PRIORITY_OPTIONS } from '@/types/enums'
+import { X, Plus, Trash2, CheckSquare, Square, Ban, Calendar, CalendarClock, Flag, Tag, Users, FolderKanban, Minimize2 } from 'lucide-react'
+import { TicketPriority, TICKET_PRIORITY_OPTIONS } from '@/types/enums'
+import { defaultStatusKey, fallbackStatuses, type BoardStatus } from './status-utils'
 import { RichTextEditor } from '@/components/ui/RichTextEditor'
-import type { Project, Team, Ticket } from '@/payload-types'
+import type { Milestone, Project, Team, Ticket } from '@/payload-types'
 
 interface TicketModalProps {
   isOpen: boolean
   onClose: () => void
   ticket: Ticket | null
   projects: Project[]
+  /** Team Members — people. The Payload slug stays `teams` on purpose. */
   teams: Team[]
+  /** Workflow states from the `statuses` collection. Never a fixed list. */
+  statuses?: BoardStatus[]
+  milestones?: Milestone[]
   allTickets: Ticket[]
   onSave: (ticket: Ticket) => void
   defaultProjectId?: string | null
@@ -20,6 +25,12 @@ interface TicketModalProps {
 interface Label {
   name: string
   color: string
+}
+
+/** Payload stores dates as ISO strings; <input type="date"> wants YYYY-MM-DD. */
+function toDateInput(value: string | null | undefined): string {
+  if (!value) return ''
+  return String(value).slice(0, 10)
 }
 
 interface Subtask {
@@ -33,19 +44,26 @@ export function TicketModal({
   ticket,
   projects,
   teams,
+  statuses,
+  milestones = [],
   allTickets,
   onSave,
   defaultProjectId,
 }: TicketModalProps) {
+  // An un-seeded workspace still needs a usable Status picker.
+  const statusOptions = statuses?.length ? statuses : fallbackStatuses()
+  const initialStatus = defaultStatusKey(statusOptions)
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
-  const [status, setStatus] = useState<TicketStatus>(TicketStatus.TODO)
+  const [status, setStatus] = useState<string>(initialStatus)
   const [priority, setPriority] = useState<TicketPriority>(TicketPriority.NO_PRIORITY)
   const [projectId, setProjectId] = useState('')
   const [teamId, setTeamId] = useState('')
+  const [milestoneId, setMilestoneId] = useState('')
   const [labels, setLabels] = useState<Label[]>([])
   const [subtasks, setSubtasks] = useState<Subtask[]>([])
   const [blockedByIds, setBlockedByIds] = useState<string[]>([])
+  const [startDate, setStartDate] = useState('')
   const [dueDate, setDueDate] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [newLabelName, setNewLabelName] = useState('')
@@ -57,28 +75,42 @@ export function TicketModal({
     if (ticket) {
       setTitle(ticket.title)
       setDescription(ticket.description as unknown as string || '')
-      setStatus(ticket.status as TicketStatus)
+      setStatus(String(ticket.status))
       setPriority(ticket.priority as TicketPriority || TicketPriority.NO_PRIORITY)
       setProjectId(typeof ticket.project === 'string' ? ticket.project : ticket.project?.id || '')
       setTeamId(typeof ticket.team === 'string' ? ticket.team : ticket.team?.id || '')
+      setMilestoneId(
+        typeof ticket.milestone === 'string' ? ticket.milestone : ticket.milestone?.id || ''
+      )
       setLabels((ticket.labels || []).map(l => ({ name: l.name, color: l.color ?? '#6366f1' })))
       setSubtasks((ticket.subtasks || []).map(st => ({ title: st.title, completed: st.completed ?? false })))
       setBlockedByIds((ticket.blockedBy || []).map(t => typeof t === 'string' ? t : t.id))
-      setDueDate(ticket.dueDate || '')
+      setStartDate(toDateInput(ticket.startDate))
+      setDueDate(toDateInput(ticket.dueDate))
     } else {
       setTitle('')
       setDescription('')
-      setStatus(TicketStatus.TODO)
+      setStatus(initialStatus)
       setPriority(TicketPriority.NO_PRIORITY)
       setProjectId(defaultProjectId || '')
       setTeamId('')
+      setMilestoneId('')
       setLabels([])
       setSubtasks([])
       setBlockedByIds([])
+      setStartDate('')
       setDueDate('')
     }
     setIsFullScreen(true)
-  }, [ticket, defaultProjectId, isOpen])
+  }, [ticket, defaultProjectId, isOpen, initialStatus])
+
+  /**
+   * Inactive people keep their history but must not be assignable. The person already on
+   * this ticket stays in the list, or editing anything else would silently unassign them.
+   */
+  const assignableMembers = (teams || []).filter(
+    (member) => member.active !== false || member.id === teamId
+  )
 
   const availableTickets = (allTickets || []).filter(t =>
     (!ticket || t.id !== ticket.id) && !blockedByIds.includes(t.id)
@@ -108,9 +140,11 @@ export function TicketModal({
         priority,
         project: projectId,
         team: teamId || null,
+        milestone: milestoneId || null,
         labels,
         subtasks,
         blockedBy: blockedByIds,
+        startDate: startDate || null,
         dueDate: dueDate || null,
       }
 
@@ -306,14 +340,20 @@ export function TicketModal({
                     <label className="text-xs font-medium text-muted-foreground mb-2 block">Status</label>
                     <select
                       value={status}
-                      onChange={(e) => setStatus(e.target.value as TicketStatus)}
+                      onChange={(e) => setStatus(e.target.value)}
                       className="w-full bg-transparent border-none text-sm text-foreground focus:ring-0 p-0 cursor-pointer hover:text-primary transition-colors"
                     >
-                      {TICKET_STATUS_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value} className="bg-card">
+                      {statusOptions.map((option) => (
+                        <option key={option.key} value={option.key} className="bg-card">
                           {option.label}
                         </option>
                       ))}
+                      {/* Keep an orphaned status visible rather than silently rewriting it. */}
+                      {status && !statusOptions.some((o) => o.key === status) && (
+                        <option value={status} className="bg-card">
+                          {status} (unknown status)
+                        </option>
+                      )}
                     </select>
                   </div>
 
@@ -333,24 +373,58 @@ export function TicketModal({
                     </select>
                   </div>
 
-                  {/* Team */}
+                  {/* Assignee */}
                   <div>
                     <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground mb-2">
                       <Users className="w-3.5 h-3.5" />
-                      Team
+                      Assignee
                     </label>
                     <select
                       value={teamId}
                       onChange={(e) => setTeamId(e.target.value)}
                       className="w-full bg-transparent border-none text-sm text-foreground focus:ring-0 p-0 cursor-pointer hover:text-primary transition-colors"
                     >
-                      <option value="" className="bg-card">No team</option>
-                      {teams.map((team) => (
-                        <option key={team.id} value={team.id} className="bg-card">
-                          {team.name}
+                      <option value="" className="bg-card">Unassigned</option>
+                      {assignableMembers.map((member) => (
+                        <option key={member.id} value={member.id} className="bg-card">
+                          {member.name}
                         </option>
                       ))}
                     </select>
+                  </div>
+
+                  {/* Milestone */}
+                  <div>
+                    <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground mb-2">
+                      <Flag className="w-3.5 h-3.5" />
+                      Milestone
+                    </label>
+                    <select
+                      value={milestoneId}
+                      onChange={(e) => setMilestoneId(e.target.value)}
+                      className="w-full bg-transparent border-none text-sm text-foreground focus:ring-0 p-0 cursor-pointer hover:text-primary transition-colors"
+                    >
+                      <option value="" className="bg-card">No milestone</option>
+                      {milestones.map((milestone) => (
+                        <option key={milestone.id} value={milestone.id} className="bg-card">
+                          {milestone.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Start Date */}
+                  <div>
+                    <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground mb-2">
+                      <CalendarClock className="w-3.5 h-3.5" />
+                      Start Date
+                    </label>
+                    <input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      className="w-full bg-transparent border-none text-sm text-foreground focus:ring-0 p-0 cursor-pointer"
+                    />
                   </div>
 
                   {/* Due Date */}

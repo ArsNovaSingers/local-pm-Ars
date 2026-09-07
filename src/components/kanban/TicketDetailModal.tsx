@@ -24,20 +24,30 @@ import {
   Minimize2,
 } from 'lucide-react'
 import {
-  TicketStatus,
   TicketPriority,
-  TICKET_STATUS_OPTIONS,
   TICKET_PRIORITY_OPTIONS,
   PRIORITY_COLORS,
-  STATUS_COLORS,
 } from '@/types/enums'
+import {
+  fallbackStatuses,
+  isDoneStatus,
+  statusColor,
+  statusLabel,
+  type BoardStatus,
+} from './status-utils'
 import { RichTextEditor, RichTextDisplay } from '@/components/ui/RichTextEditor'
 import { DependencyGraph } from './DependencyGraph'
-import type { Project, Team, Ticket } from '@/payload-types'
+import type { Milestone, Project, Team, Ticket } from '@/payload-types'
 
 interface Subtask {
   title: string
   completed: boolean
+}
+
+/** Payload stores dates as ISO strings; <input type="date"> wants YYYY-MM-DD. */
+function toDateInput(value: string | null | undefined): string {
+  if (!value) return ''
+  return String(value).slice(0, 10)
 }
 
 interface TicketDetailModalProps {
@@ -45,7 +55,11 @@ interface TicketDetailModalProps {
   onClose: () => void
   ticket: Ticket
   projects: Project[]
+  /** Team Members — people. The Payload slug stays `teams` on purpose. */
   teams: Team[]
+  /** Workflow states from the `statuses` collection. Never a fixed list. */
+  statuses?: BoardStatus[]
+  milestones?: Milestone[]
   allTickets: Ticket[]
   onUpdate: (ticket: Ticket) => void
   onDelete: (ticketId: string) => void
@@ -57,10 +71,14 @@ export function TicketDetailModal({
   ticket,
   projects,
   teams,
+  statuses,
+  milestones = [],
   allTickets,
   onUpdate,
   onDelete,
 }: TicketDetailModalProps) {
+  // A workspace whose statuses are not seeded yet still needs a usable Status picker.
+  const statusOptions = statuses?.length ? statuses : fallbackStatuses()
   const [isEditing, setIsEditing] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isFullScreen, setIsFullScreen] = useState(false)
@@ -68,10 +86,14 @@ export function TicketDetailModal({
   // Form state
   const [title, setTitle] = useState(ticket.title)
   const [description, setDescription] = useState(ticket.description as unknown as string || '')
-  const [status, setStatus] = useState(ticket.status)
+  const [status, setStatus] = useState<string>(String(ticket.status))
   const [priority, setPriority] = useState(ticket.priority || TicketPriority.NO_PRIORITY)
   const [teamId, setTeamId] = useState(typeof ticket.team === 'string' ? ticket.team : ticket.team?.id || '')
-  const [dueDate, setDueDate] = useState(ticket.dueDate || '')
+  const [milestoneId, setMilestoneId] = useState(
+    typeof ticket.milestone === 'string' ? ticket.milestone : ticket.milestone?.id || ''
+  )
+  const [startDate, setStartDate] = useState(toDateInput(ticket.startDate))
+  const [dueDate, setDueDate] = useState(toDateInput(ticket.dueDate))
   const [labels, setLabels] = useState(ticket.labels || [])
   const [subtasks, setSubtasks] = useState<Subtask[]>(
     (ticket.subtasks || []).map(st => ({ title: st.title, completed: st.completed ?? false }))
@@ -85,7 +107,16 @@ export function TicketDetailModal({
   const [showDependencyGraph, setShowDependencyGraph] = useState(true)
 
   const project = typeof ticket.project === 'object' ? ticket.project : null
-  const team = typeof ticket.team === 'object' ? ticket.team : null
+  const assignee = typeof ticket.team === 'object' ? ticket.team : null
+  const milestone = typeof ticket.milestone === 'object' ? ticket.milestone : null
+
+  /**
+   * Inactive people keep their history but must not be assignable. Whoever is on this
+   * ticket stays listed, or saving any other change would silently unassign them.
+   */
+  const assignableMembers = (teams || []).filter(
+    (member) => member.active !== false || member.id === teamId
+  )
 
   // Get blocking tickets (resolved objects) - tickets that block this ticket
   const blockingTickets = (ticket.blockedBy || [])
@@ -113,6 +144,8 @@ export function TicketDetailModal({
           status,
           priority,
           team: teamId || null,
+          milestone: milestoneId || null,
+          startDate: startDate || null,
           dueDate: dueDate || null,
           labels,
           subtasks,
@@ -141,10 +174,12 @@ export function TicketDetailModal({
   const handleCancel = () => {
     setTitle(ticket.title)
     setDescription(ticket.description as unknown as string || '')
-    setStatus(ticket.status)
+    setStatus(String(ticket.status))
     setPriority(ticket.priority || TicketPriority.NO_PRIORITY)
     setTeamId(typeof ticket.team === 'string' ? ticket.team : ticket.team?.id || '')
-    setDueDate(ticket.dueDate || '')
+    setMilestoneId(typeof ticket.milestone === 'string' ? ticket.milestone : ticket.milestone?.id || '')
+    setStartDate(toDateInput(ticket.startDate))
+    setDueDate(toDateInput(ticket.dueDate))
     setLabels(ticket.labels || [])
     setSubtasks((ticket.subtasks || []).map(st => ({ title: st.title, completed: st.completed ?? false })))
     setBlockedByIds((ticket.blockedBy || []).map(t => typeof t === 'string' ? t : t.id))
@@ -325,24 +360,28 @@ export function TicketDetailModal({
       </div>
       {isEditing ? (
         <select
-          value={status as string}
-          onChange={(e) => setStatus(e.target.value as TicketStatus)}
+          value={status}
+          onChange={(e) => setStatus(e.target.value)}
           className="w-full bg-secondary/30 hover:bg-secondary/50 border border-border/50 rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer"
         >
-          {TICKET_STATUS_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
+          {statusOptions.map((option) => (
+            <option key={option.key} value={option.key}>
               {option.label}
             </option>
           ))}
+          {/* Surface an orphaned status rather than silently rewriting it on save. */}
+          {status && !statusOptions.some((o) => o.key === status) && (
+            <option value={status}>{status} (unknown status)</option>
+          )}
         </select>
       ) : (
         <div className="flex items-center gap-2.5">
           <span
             className="w-2.5 h-2.5 rounded-full ring-2 ring-background"
-            style={{ backgroundColor: STATUS_COLORS[ticket.status as TicketStatus] }}
+            style={{ backgroundColor: statusColor(statusOptions, ticket.status) }}
           />
           <span className="text-sm font-medium text-foreground">
-            {TICKET_STATUS_OPTIONS.find((o) => o.value === ticket.status)?.label}
+            {statusLabel(statusOptions, ticket.status)}
           </span>
         </div>
       )}
@@ -399,11 +438,11 @@ export function TicketDetailModal({
     </div>
   )
 
-  const TeamSection = () => (
+  const AssigneeSection = () => (
     <div className="bg-card border border-border/40 rounded-xl p-4 shadow-sm">
       <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
         <Users className="w-3.5 h-3.5" />
-        Team
+        Assignee
       </div>
       {isEditing ? (
         <select
@@ -411,23 +450,84 @@ export function TicketDetailModal({
           onChange={(e) => setTeamId(e.target.value)}
           className="w-full bg-secondary/30 hover:bg-secondary/50 border border-border/50 rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer"
         >
-          <option value="">No team</option>
-          {teams.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name}
+          <option value="">Unassigned</option>
+          {assignableMembers.map((member) => (
+            <option key={member.id} value={member.id}>
+              {member.name}
             </option>
           ))}
         </select>
-      ) : team ? (
+      ) : assignee ? (
         <div className="flex items-center gap-2">
           <div
             className="w-2.5 h-2.5 rounded-full"
-            style={{ backgroundColor: team.color as string }}
+            style={{ backgroundColor: assignee.color as string }}
           />
-          <span className="text-sm font-medium text-foreground">{team.name}</span>
+          <span
+            className={`text-sm font-medium ${
+              assignee.active === false ? 'text-muted-foreground' : 'text-foreground'
+            }`}
+          >
+            {assignee.name}
+            {assignee.active === false ? ' (inactive)' : ''}
+          </span>
         </div>
       ) : (
-        <span className="text-sm text-muted-foreground italic">No team assigned</span>
+        <span className="text-sm text-muted-foreground italic">Unassigned</span>
+      )}
+    </div>
+  )
+
+  const MilestoneSection = () => (
+    <div className="bg-card border border-border/40 rounded-xl p-4 shadow-sm">
+      <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+        <Flag className="w-3.5 h-3.5" />
+        Milestone
+      </div>
+      {isEditing ? (
+        <select
+          value={milestoneId}
+          onChange={(e) => setMilestoneId(e.target.value)}
+          className="w-full bg-secondary/30 hover:bg-secondary/50 border border-border/50 rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer"
+        >
+          <option value="">No milestone</option>
+          {milestones.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name}
+            </option>
+          ))}
+        </select>
+      ) : milestone ? (
+        <div className="flex items-center gap-2">
+          <div
+            className="w-2.5 h-2.5 rounded-full"
+            style={{ backgroundColor: (milestone.color as string) || '#ef4444' }}
+          />
+          <span className="text-sm font-medium text-foreground">{milestone.name}</span>
+        </div>
+      ) : (
+        <span className="text-sm text-muted-foreground italic">No milestone</span>
+      )}
+    </div>
+  )
+
+  const StartDateSection = () => (
+    <div className="bg-card border border-border/40 rounded-xl p-4 shadow-sm">
+      <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+        <Clock className="w-3.5 h-3.5" />
+        Start Date
+      </div>
+      {isEditing ? (
+        <input
+          type="date"
+          value={startDate}
+          onChange={(e) => setStartDate(e.target.value)}
+          className="w-full bg-secondary/30 hover:bg-secondary/50 border border-border/50 rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer"
+        />
+      ) : ticket.startDate ? (
+        <span className="text-sm font-medium text-foreground">{formatRelativeDate(ticket.startDate)}</span>
+      ) : (
+        <span className="text-sm text-muted-foreground italic">No start date</span>
       )}
     </div>
   )
@@ -533,7 +633,7 @@ export function TicketDetailModal({
                 >
                   {blocker.ticketId}
                 </span>
-                <span className={`flex-1 text-sm truncate ${blocker.status === 'DONE' ? 'text-muted-foreground line-through' : 'text-foreground'}`}>
+                <span className={`flex-1 text-sm truncate ${isDoneStatus(statusOptions, blocker.status) ? 'text-muted-foreground line-through' : 'text-foreground'}`}>
                   {blocker.title}
                 </span>
                 <button
@@ -551,7 +651,7 @@ export function TicketDetailModal({
             const blockerProject = typeof blocker.project === 'object' ? blocker.project : null
             return (
               <div key={blocker.id} className="flex items-center gap-2 p-2 bg-secondary/10 border border-border/40 rounded-lg">
-                <Ban className={`w-4 h-4 ${blocker.status === 'DONE' ? 'text-emerald-500' : 'text-amber-500'}`} />
+                <Ban className={`w-4 h-4 ${isDoneStatus(statusOptions, blocker.status) ? 'text-emerald-500' : 'text-amber-500'}`} />
                 <span
                   className="text-[10px] font-bold px-1.5 py-0.5 rounded"
                   style={{
@@ -561,11 +661,11 @@ export function TicketDetailModal({
                 >
                   {blocker.ticketId}
                 </span>
-                <span className={`flex-1 text-sm truncate ${blocker.status === 'DONE' ? 'text-muted-foreground line-through' : 'text-foreground'}`}>
+                <span className={`flex-1 text-sm truncate ${isDoneStatus(statusOptions, blocker.status) ? 'text-muted-foreground line-through' : 'text-foreground'}`}>
                   {blocker.title}
                 </span>
-                <span className={`text-[10px] px-2 py-0.5 rounded font-medium ${blocker.status === 'DONE' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-amber-500/10 text-amber-500'}`}>
-                  {blocker.status === 'DONE' ? 'Done' : 'Pending'}
+                <span className={`text-[10px] px-2 py-0.5 rounded font-medium ${isDoneStatus(statusOptions, blocker.status) ? 'bg-emerald-500/10 text-emerald-500' : 'bg-amber-500/10 text-amber-500'}`}>
+                  {isDoneStatus(statusOptions, blocker.status) ? 'Done' : 'Pending'}
                 </span>
               </div>
             )
@@ -611,7 +711,7 @@ export function TicketDetailModal({
             const blockedProject = typeof blocked.project === 'object' ? blocked.project : null
             return (
               <div key={blocked.id} className="flex items-center gap-2 p-2 bg-secondary/10 border border-border/40 rounded-lg">
-                <Ban className={`w-4 h-4 ${blocked.status === 'DONE' ? 'text-emerald-500' : 'text-rose-500'}`} />
+                <Ban className={`w-4 h-4 ${isDoneStatus(statusOptions, blocked.status) ? 'text-emerald-500' : 'text-rose-500'}`} />
                 <span
                   className="text-[10px] font-bold px-1.5 py-0.5 rounded"
                   style={{
@@ -621,11 +721,11 @@ export function TicketDetailModal({
                 >
                   {blocked.ticketId}
                 </span>
-                <span className={`flex-1 text-sm truncate ${blocked.status === 'DONE' ? 'text-muted-foreground line-through' : 'text-foreground'}`}>
+                <span className={`flex-1 text-sm truncate ${isDoneStatus(statusOptions, blocked.status) ? 'text-muted-foreground line-through' : 'text-foreground'}`}>
                   {blocked.title}
                 </span>
-                <span className={`text-[10px] px-2 py-0.5 rounded font-medium ${blocked.status === 'DONE' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'}`}>
-                  {blocked.status === 'DONE' ? 'Done' : 'Waiting'}
+                <span className={`text-[10px] px-2 py-0.5 rounded font-medium ${isDoneStatus(statusOptions, blocked.status) ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'}`}>
+                  {isDoneStatus(statusOptions, blocked.status) ? 'Done' : 'Waiting'}
                 </span>
               </div>
             )
@@ -656,7 +756,7 @@ export function TicketDetailModal({
         </button>
         {showDependencyGraph && (
           <div className="mt-4 pt-4 border-t border-border/40">
-            <DependencyGraph ticket={ticket} allTickets={allTickets} />
+            <DependencyGraph ticket={ticket} allTickets={allTickets} statuses={statusOptions} />
           </div>
         )}
       </div>
@@ -770,7 +870,9 @@ export function TicketDetailModal({
                   <StatusSection />
                   <PrioritySection />
                   <ProjectSection />
-                  <TeamSection />
+                  <AssigneeSection />
+                  <MilestoneSection />
+                  <StartDateSection />
                   <DueDateSection />
                   <LabelsSection />
 
@@ -811,8 +913,10 @@ export function TicketDetailModal({
                       <PrioritySection />
                       <div className="grid grid-cols-2 gap-4">
                         <ProjectSection />
-                        <TeamSection />
+                        <AssigneeSection />
                       </div>
+                      <MilestoneSection />
+                      <StartDateSection />
                       <DueDateSection />
                       <LabelsSection />
 

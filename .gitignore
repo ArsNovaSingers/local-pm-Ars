@@ -30,3 +30,6 @@ npm-debug.log*
 
 # Misc
 *.tgz
+
+# TypeScript incremental build cache — machine-local, should never have been tracked
+tsconfig.tsbuildinfo

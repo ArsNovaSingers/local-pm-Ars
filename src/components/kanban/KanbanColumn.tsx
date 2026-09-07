@@ -4,7 +4,7 @@ import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { Loader2, ChevronDown, Plus } from 'lucide-react'
 import { KanbanCard } from './KanbanCard'
-import { TicketStatus, STATUS_COLORS } from '@/types/enums'
+import { DEFAULT_STATUS_COLOR } from '@/types/enums'
 import type { Ticket } from '@/payload-types'
 
 interface ColumnPaginationInfo {
@@ -14,8 +14,13 @@ interface ColumnPaginationInfo {
 }
 
 interface KanbanColumnProps {
-  id: TicketStatus
+  /** A status `key` from the `statuses` collection — a plain string, never an enum. */
+  id: string
   title: string
+  /** Authoritative colour comes from the status row. */
+  color?: string
+  /** The synthetic column holding tickets whose status matches no status row. */
+  isUnknown?: boolean
   tickets: Ticket[]
   onViewTicket: (ticket: Ticket) => void
   onDeleteTicket?: (ticketId: string) => void
@@ -27,6 +32,8 @@ interface KanbanColumnProps {
 export function KanbanColumn({
   id,
   title,
+  color,
+  isUnknown = false,
   tickets,
   onViewTicket,
   onDeleteTicket,
@@ -38,8 +45,8 @@ export function KanbanColumn({
     id,
   })
 
-  // Get status color accent
-  const statusColor = STATUS_COLORS[id] || '#6366f1'
+  // The status row owns its colour; the shared default is only a fallback.
+  const statusColor = color || DEFAULT_STATUS_COLOR
 
   return (
     <div className="flex flex-col w-80 flex-shrink-0 max-h-full">
@@ -48,6 +55,14 @@ export function KanbanColumn({
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full" style={{ backgroundColor: statusColor }} />
           <h2 className="font-semibold text-sm text-foreground uppercase tracking-wide">{title}</h2>
+          {isUnknown && (
+            <span
+              className="text-[10px] font-medium px-1.5 py-0.5 rounded border border-amber-500/40 text-amber-500"
+              title="These tickets carry a status that no longer exists in the Statuses collection. Drag them into a real column to fix them."
+            >
+              needs fixing
+            </span>
+          )}
           <span className="ml-1 px-1.5 py-0.5 rounded-md bg-secondary/60 text-xs font-medium text-muted-foreground">
             {pagination ? `${pagination.totalDocs}` : tickets.length}
           </span>

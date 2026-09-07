@@ -13,14 +13,28 @@ import {
   FolderKanban,
 } from 'lucide-react'
 import { RichTextEditor } from '@/components/ui/RichTextEditor'
-import { ProjectStatus, PROJECT_STATUS_OPTIONS, PROJECT_COLORS, PROJECT_ICONS, TicketStatus } from '@/types/enums'
+import { ProjectStatus, PROJECT_STATUS_OPTIONS, PROJECT_COLORS, PROJECT_ICONS } from '@/types/enums'
+import {
+  type BoardStatus,
+  fallbackStatuses,
+  findStatus,
+  isDoneStatus,
+  statusColor,
+  statusLabel,
+} from '@/components/kanban/status-utils'
 import type { Project, Ticket, Team } from '@/payload-types'
 import * as Icons from 'lucide-react'
 
 interface ProjectDetailProps {
   project: Project
   tickets: Ticket[]
+  /**
+   * Team Members — people. The Payload slug and the generated `Team` type stay as they
+   * are on purpose; see collections/TeamMembers.ts.
+   */
   teams: Team[]
+  /** Workflow states from the `statuses` collection. Never a fixed list. */
+  statuses?: BoardStatus[]
 }
 
 const iconMap: Record<string, React.ComponentType<{ className?: string; style?: React.CSSProperties }>> = {
@@ -38,7 +52,7 @@ const iconMap: Record<string, React.ComponentType<{ className?: string; style?: 
   database: Icons.Database,
 }
 
-export function ProjectDetail({ project: initialProject, tickets, teams }: ProjectDetailProps) {
+export function ProjectDetail({ project: initialProject, tickets, teams, statuses }: ProjectDetailProps) {
   const router = useRouter()
   const [project, setProject] = useState(initialProject)
   const [isEditing, setIsEditing] = useState(false)
@@ -54,11 +68,17 @@ export function ProjectDetail({ project: initialProject, tickets, teams }: Proje
   const IconComponent = iconMap[project.icon as string] || Icons.Folder
 
   // Calculate ticket stats
+  // Workflow states are configurable, so the breakdown is built from whatever states
+  // this workspace actually defines rather than a hardcoded Todo/In Progress/Done.
+  // A project using custom states used to report every one of them as "Done".
+  const statusList = statuses?.length ? statuses : fallbackStatuses()
   const ticketStats = {
     total: tickets.length,
-    todo: tickets.filter(t => t.status === TicketStatus.TODO).length,
-    inProgress: tickets.filter(t => t.status === TicketStatus.IN_PROGRESS).length,
-    done: tickets.filter(t => t.status === TicketStatus.DONE).length,
+    done: tickets.filter(t => isDoneStatus(statusList, t.status)).length,
+    byStatus: statusList
+      .map(s => ({ ...s, count: tickets.filter(t => String(t.status) === s.key).length }))
+      .filter(s => s.count > 0),
+    unknown: tickets.filter(t => !findStatus(statusList, t.status)).length,
   }
 
   const handleSave = async () => {
@@ -252,13 +272,14 @@ export function ProjectDetail({ project: initialProject, tickets, teams }: Proje
                         <span className="flex-1 text-sm text-white truncate">
                           {ticket.title}
                         </span>
-                        <span className={`text-xs px-2 py-0.5 rounded ${
-                          ticket.status === TicketStatus.TODO ? 'bg-gray-500/20 text-gray-400' :
-                          ticket.status === TicketStatus.IN_PROGRESS ? 'bg-blue-500/20 text-blue-400' :
-                          'bg-green-500/20 text-green-400'
-                        }`}>
-                          {ticket.status === TicketStatus.TODO ? 'Todo' :
-                           ticket.status === TicketStatus.IN_PROGRESS ? 'In Progress' : 'Done'}
+                        <span
+                          className="text-xs px-2 py-0.5 rounded"
+                          style={{
+                            backgroundColor: `${statusColor(statusList, ticket.status)}20`,
+                            color: statusColor(statusList, ticket.status),
+                          }}
+                        >
+                          {statusLabel(statusList, ticket.status)}
                         </span>
                         {team && (
                           <span
@@ -383,18 +404,18 @@ export function ProjectDetail({ project: initialProject, tickets, teams }: Proje
                   <span className="text-sm text-gray-400">Total Tickets</span>
                   <span className="text-sm font-medium text-white">{ticketStats.total}</span>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-400">Todo</span>
-                  <span className="text-sm font-medium text-gray-400">{ticketStats.todo}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-400">In Progress</span>
-                  <span className="text-sm font-medium text-blue-400">{ticketStats.inProgress}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-400">Done</span>
-                  <span className="text-sm font-medium text-green-400">{ticketStats.done}</span>
-                </div>
+                {ticketStats.byStatus.map((s) => (
+                  <div key={s.key} className="flex items-center justify-between">
+                    <span className="text-sm text-gray-400">{s.label}</span>
+                    <span className="text-sm font-medium" style={{ color: s.color }}>{s.count}</span>
+                  </div>
+                ))}
+                {ticketStats.unknown > 0 && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-amber-400">Unknown status</span>
+                    <span className="text-sm font-medium text-amber-400">{ticketStats.unknown}</span>
+                  </div>
+                )}
 
                 {/* Progress bar */}
                 {ticketStats.total > 0 && (

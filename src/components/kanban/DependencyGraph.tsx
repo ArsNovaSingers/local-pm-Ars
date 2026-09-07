@@ -3,10 +3,16 @@
 import { useMemo, useState } from 'react'
 import { ArrowRight, CheckCircle2, Circle, Ban, X, ZoomIn, ZoomOut } from 'lucide-react'
 import type { Ticket } from '@/payload-types'
+import { type BoardStatus, fallbackStatuses, isDoneStatus, statusColor } from './status-utils'
 
 interface DependencyGraphProps {
   ticket: Ticket
   allTickets: Ticket[]
+  /**
+   * Workflow states. "Finished" is whatever this workspace flagged `isDone` — the graph
+   * used to test `status === 'DONE'`, which quietly called every custom state unfinished.
+   */
+  statuses?: BoardStatus[]
   onTicketClick?: (ticket: Ticket) => void
 }
 
@@ -23,8 +29,10 @@ interface GraphEdge {
   to: GraphNode
 }
 
-export function DependencyGraph({ ticket, allTickets, onTicketClick }: DependencyGraphProps) {
+export function DependencyGraph({ ticket, allTickets, statuses, onTicketClick }: DependencyGraphProps) {
   const [zoom, setZoom] = useState(1)
+  const statusList = statuses?.length ? statuses : fallbackStatuses()
+  const done = (t: Ticket) => isDoneStatus(statusList, t.status)
 
   // Build the dependency graph
   const { nodes, edges, hasGraph } = useMemo(() => {
@@ -137,17 +145,11 @@ export function DependencyGraph({ ticket, allTickets, onTicketClick }: Dependenc
   const maxX = Math.max(...nodes.map(n => n.x)) + nodeWidth + padding * 2
   const maxY = Math.max(...nodes.map(n => n.y)) + nodeHeight + padding * 2
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'DONE': return { bg: '#22c55e', text: '#dcfce7', border: '#16a34a' }
-      case 'IN_PROGRESS': return { bg: '#6366f1', text: '#e0e7ff', border: '#4f46e5' }
-      default: return { bg: '#71717a', text: '#e4e4e7', border: '#52525b' }
-    }
-  }
+  const getStatusColor = (status: unknown) => ({ bg: statusColor(statusList, status) })
 
   const getNodeBorderColor = (node: GraphNode) => {
     if (node.type === 'current') return '#6366f1' // Primary
-    if (node.ticket.status === 'DONE') return '#22c55e' // Success
+    if (done(node.ticket)) return '#22c55e' // Success
     return '#f59e0b' // Warning/Amber
   }
 
@@ -233,7 +235,7 @@ export function DependencyGraph({ ticket, allTickets, onTicketClick }: Dependenc
             const toX = edge.to.x + padding + nodeWidth / 2
             const toY = edge.to.y + padding
 
-            const isDone = edge.from.ticket.status === 'DONE'
+            const isDone = done(edge.from.ticket)
             const midY = (fromY + toY) / 2
 
             return (
@@ -256,7 +258,7 @@ export function DependencyGraph({ ticket, allTickets, onTicketClick }: Dependenc
           {/* Nodes */}
           {nodes.map((node) => {
             const project = typeof node.ticket.project === 'object' ? node.ticket.project : null
-            const statusColors = getStatusColor(node.ticket.status as string)
+            const statusColors = getStatusColor(node.ticket.status)
             const borderColor = getNodeBorderColor(node)
             const isClickable = node.type !== 'current' && onTicketClick
 
@@ -287,7 +289,7 @@ export function DependencyGraph({ ticket, allTickets, onTicketClick }: Dependenc
                   r="4"
                   fill={statusColors.bg}
                 />
-                {node.ticket.status === 'DONE' && (
+                {done(node.ticket) && (
                   <path
                     d="M13 30 L15 32 L19 28"
                     stroke="white"
@@ -331,7 +333,7 @@ export function DependencyGraph({ ticket, allTickets, onTicketClick }: Dependenc
                 )}
 
                 {/* Blocked indicator */}
-                {node.type === 'blocked' && node.ticket.status !== 'DONE' && (
+                {node.type === 'blocked' && !done(node.ticket) && (
                   <g transform={`translate(${nodeWidth - 38}, ${nodeHeight - 16})`}>
                     <rect
                       x="0"

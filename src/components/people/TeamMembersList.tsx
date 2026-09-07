@@ -1,14 +1,25 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Plus, MoreHorizontal, Pencil, Trash2, Users, Eye, Loader2 } from 'lucide-react'
-import { TeamModal } from './TeamModal'
-import { TeamDetailModal } from './TeamDetailModal'
+import { Plus, MoreHorizontal, Pencil, Trash2, Users, Eye, Loader2, Mail } from 'lucide-react'
+import { TeamMemberModal } from './TeamMemberModal'
+import { TeamMemberDetailModal } from './TeamMemberDetailModal'
 import { TicketDetailModal } from '@/components/kanban/TicketDetailModal'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { useInfiniteScroll } from '@/hooks/useInfiniteScroll'
 
+/**
+ * `Team` is the generated type for the `teams` collection, which holds PEOPLE. The slug
+ * and the type name stay as they are on purpose — see collections/TeamMembers.ts. Every
+ * user-visible string here says "Team Member".
+ */
 import type { Team, Project, Ticket } from '@/payload-types'
+
+const ROLE_LABELS: Record<string, string> = {
+  admin: 'Admin',
+  member: 'Member',
+  agent: 'Agent',
+}
 
 interface PaginationInfo {
   page: number
@@ -16,13 +27,13 @@ interface PaginationInfo {
   hasNextPage: boolean
 }
 
-interface TeamsListProps {
-  initialTeams: Team[]
+interface TeamMembersListProps {
+  initialTeamMembers: Team[]
   initialPagination?: PaginationInfo
 }
 
-export function TeamsList({ initialTeams, initialPagination }: TeamsListProps) {
-  const [teams, setTeams] = useState<Team[]>(initialTeams)
+export function TeamMembersList({ initialTeamMembers, initialPagination }: TeamMembersListProps) {
+  const [teams, setTeams] = useState<Team[]>(initialTeamMembers)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingTeam, setEditingTeam] = useState<Team | null>(null)
   const [viewingTeam, setViewingTeam] = useState<Team | null>(null)
@@ -45,12 +56,13 @@ export function TeamsList({ initialTeams, initialPagination }: TeamsListProps) {
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
 
-  // Load more teams for infinite scroll
+  // Load more team members for infinite scroll
   const loadMoreTeams = useCallback(async () => {
     if (!pagination.hasNextPage) return
 
     try {
       const nextPage = pagination.page + 1
+      // The REST path stays /api/teams — the slug is unchanged on purpose.
       const response = await fetch(`/api/teams?page=${nextPage}&limit=20&sort=-createdAt`)
       const data = await response.json()
 
@@ -63,7 +75,7 @@ export function TeamsList({ initialTeams, initialPagination }: TeamsListProps) {
         })
       }
     } catch (error) {
-      console.error('Failed to load more teams:', error)
+      console.error('Failed to load more team members:', error)
     }
   }, [pagination])
 
@@ -135,7 +147,7 @@ export function TeamsList({ initialTeams, initialPagination }: TeamsListProps) {
     try {
       const { team } = deleteConfirm
 
-      // Delete the team (tickets will be orphaned, not deleted)
+      // Delete the person (their tickets are unassigned, never deleted)
       await fetch(`/api/teams/${team.id}`, { method: 'DELETE' })
       setTeams((prev) => prev.filter((t) => t.id !== team.id))
       setDeleteConfirm(null)
@@ -195,27 +207,27 @@ export function TeamsList({ initialTeams, initialPagination }: TeamsListProps) {
     const { team, ticketCount } = deleteConfirm
 
     if (ticketCount === -1) {
-      return `Are you sure you want to delete "${team.name}"?\n\nTickets assigned to this team will become unassigned.`
+      return `Are you sure you want to delete "${team.name}"?\n\nTickets assigned to this person will become unassigned.`
     }
 
     if (ticketCount === 0) {
-      return `Are you sure you want to delete "${team.name}"?\n\nNo tickets are assigned to this team.`
+      return `Are you sure you want to delete "${team.name}"?\n\nNo tickets are assigned to this person.`
     }
 
-    return `Are you sure you want to delete "${team.name}"?\n\n${ticketCount} ticket${ticketCount === 1 ? ' is' : 's are'} assigned to this team and will become unassigned.`
+    return `Are you sure you want to delete "${team.name}"?\n\n${ticketCount} ticket${ticketCount === 1 ? ' is' : 's are'} assigned to this person and will become unassigned.`
   }
 
   return (
     <div className="p-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl font-semibold text-white">Teams</h1>
+        <h1 className="text-xl font-semibold text-white">Team Members</h1>
         <button
           onClick={handleCreateTeam}
           className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-md transition-colors"
         >
           <Plus className="w-4 h-4" />
-          New Team
+          New Team Member
         </button>
       </div>
 
@@ -223,14 +235,14 @@ export function TeamsList({ initialTeams, initialPagination }: TeamsListProps) {
       {teams.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20">
           <Users className="w-12 h-12 text-gray-500 mb-4" />
-          <h2 className="text-lg font-medium text-white mb-2">No teams yet</h2>
-          <p className="text-gray-400 mb-4">Create your first team to organize work</p>
+          <h2 className="text-lg font-medium text-white mb-2">No team members yet</h2>
+          <p className="text-gray-400 mb-4">Add the people who do the work</p>
           <button
             onClick={handleCreateTeam}
             className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-md transition-colors"
           >
             <Plus className="w-4 h-4" />
-            Create Team
+            Add Team Member
           </button>
         </div>
       ) : (
@@ -240,22 +252,39 @@ export function TeamsList({ initialTeams, initialPagination }: TeamsListProps) {
               <div
                 key={team.id}
                 onClick={() => handleViewTeam(team)}
-                className="bg-[#18181b] border border-[#27272a] rounded-lg p-4 hover:border-[#3f3f46] transition-colors cursor-pointer"
+                className={`bg-[#18181b] border border-[#27272a] rounded-lg p-4 hover:border-[#3f3f46] transition-colors cursor-pointer ${
+                  team.active === false ? 'opacity-50' : ''
+                }`}
               >
                 <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
                     <div
-                      className="w-10 h-10 rounded-lg flex items-center justify-center"
+                      className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
                       style={{ backgroundColor: `${team.color}20` }}
                     >
-                      <Users
-                        className="w-5 h-5"
-                        style={{ color: team.color as string }}
-                      />
+                      {team.initials ? (
+                        <span className="text-sm font-semibold" style={{ color: team.color as string }}>
+                          {team.initials}
+                        </span>
+                      ) : (
+                        <Users className="w-5 h-5" style={{ color: team.color as string }} />
+                      )}
                     </div>
-                    <div>
-                      <h3 className="text-white font-medium">{team.name}</h3>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-white font-medium truncate">{team.name}</h3>
+                        {team.active === false && (
+                          <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded border border-[#3f3f46] text-gray-400">
+                            Inactive
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 text-xs text-gray-500 truncate">
+                        <Mail className="w-3 h-3 shrink-0" />
+                        <span className="truncate">{team.email}</span>
+                      </div>
                       <span className="text-xs text-gray-500">
+                        {ROLE_LABELS[String(team.role)] ?? String(team.role)}
                       </span>
                     </div>
                   </div>
@@ -322,18 +351,18 @@ export function TeamsList({ initialTeams, initialPagination }: TeamsListProps) {
         </>
       )}
 
-      <TeamModal
+      <TeamMemberModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        team={editingTeam}
+        teamMember={editingTeam}
         onSave={handleTeamSaved}
       />
 
       {viewingTeam && (
-        <TeamDetailModal
+        <TeamMemberDetailModal
           isOpen={!!viewingTeam}
           onClose={() => setViewingTeam(null)}
-          team={viewingTeam}
+          teamMember={viewingTeam}
           onUpdate={handleTeamUpdated}
           onDelete={handleTeamDeleted}
           onTicketClick={handleTicketClick}
@@ -357,9 +386,9 @@ export function TeamsList({ initialTeams, initialPagination }: TeamsListProps) {
         isOpen={!!deleteConfirm}
         onClose={() => setDeleteConfirm(null)}
         onConfirm={handleConfirmDelete}
-        title="Delete Team"
+        title="Delete Team Member"
         message={getDeleteMessage()}
-        confirmText="Delete Team"
+        confirmText="Delete Team Member"
         isDestructive={true}
         isLoading={isDeleting}
       />

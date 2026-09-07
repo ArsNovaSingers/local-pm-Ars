@@ -1,5 +1,7 @@
 import type { CollectionConfig } from 'payload'
 import { ProjectStatus, PROJECT_STATUS_OPTIONS, PROJECT_ICONS, PROJECT_COLORS } from '@/types/enums'
+import { collectionAccess } from '@/lib/access'
+import { stampActor, actorFields } from '@/lib/actor'
 
 export const Projects: CollectionConfig = {
   slug: 'projects',
@@ -8,13 +10,12 @@ export const Projects: CollectionConfig = {
     defaultColumns: ['name', 'prefix', 'status', 'createdAt'],
     description: 'Projects organize related tickets together',
   },
-  access: {
-    read: () => true,
-    create: () => true,
-    update: () => true,
-    delete: () => true,
+  access: collectionAccess,
+  hooks: {
+    beforeChange: [stampActor],
   },
   fields: [
+    ...actorFields,
     {
       name: 'name',
       type: 'text',

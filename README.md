@@ -1,18 +1,30 @@
 # Local PM
 
-A lightweight, self-hosted project management tool with a built-in MCP (Model Context Protocol) server that enables AI assistants to manage your projects, tickets, and teams directly.
+A lightweight, self-hosted project management tool with a built-in MCP (Model Context Protocol) server that enables AI assistants to manage your projects, tickets, and team members directly.
+
+> Forked from **[anaskasmi/local-pm](https://github.com/anaskasmi/local-pm)** by Anas Kasmi and
+> maintained independently since. See [`NOTICE.md`](./NOTICE.md) for provenance, the licence
+> position, and what has changed.
+
+**Deliberately domain-free.** The same instance is meant to serve a concert season, an ecommerce
+launch plan and a software backlog. Workflow states, milestones and custom fields are all
+configuration rather than schema, so no industry's vocabulary is baked into the code.
 
 ## Features
 
-- **Kanban Board** - Drag-and-drop ticket management with Todo, In Progress, and Done columns
+- **Kanban Board** - Drag-and-drop ticket management, with columns built from your own workflow states
+- **Configurable statuses** - Workflow states live in a collection, not an enum. Ships seeded with Backlog, Todo, In Progress, Blocked, Review and Done; add or rename your own
 - **Projects** - Organize work with customizable projects (icons, colors, prefixes)
-- **Teams** - Assign tickets to teams for better organization
+- **Team Members** - Real accounts with login, roles (admin / member / agent) and per-account API keys, so an automated caller has its own revocable identity instead of a shared token
+- **Milestones** - Dated markers work is planned against — a concert, a launch, a grant deadline
+- **Custom fields** - Per-workspace field definitions, so domain vocabulary lives in data
 - **Tickets** - Full-featured tickets with:
   - Priority levels (Urgent, High, Medium, Low)
-  - Due dates
+  - Start and due dates
   - Custom labels with colors
   - Subtasks with completion tracking
-  - Ticket dependencies (blocked by)
+  - Ticket dependencies (blocked by), guarded against cycles
+  - Custom field values
   - Rich text descriptions
 - **MCP Server** - AI-native project management via Model Context Protocol
 - **Self-Hosted** - Your data stays on your machine
@@ -50,7 +62,7 @@ A lightweight, self-hosted project management tool with a built-in MCP (Model Co
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/your-username/local-pm.git
+git clone https://github.com/ArsNovaSingers/local-pm-Ars.git
 cd local-pm
 ```
 
@@ -65,7 +77,7 @@ docker-compose up -d
 
 1. Clone the repository and install dependencies:
 ```bash
-git clone https://github.com/your-username/local-pm.git
+git clone https://github.com/ArsNovaSingers/local-pm-Ars.git
 cd local-pm
 npm install
 ```

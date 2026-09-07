@@ -1,7 +1,13 @@
 import 'dotenv/config'
 import { getPayload } from 'payload'
 import config from '../payload.config'
-import { ProjectStatus, TicketStatus, TicketPriority } from '../types/enums'
+import {
+  DEFAULT_STATUSES,
+  ProjectStatus,
+  TeamMemberRole,
+  TicketStatus,
+  TicketPriority,
+} from '../types/enums'
 
 interface SeedProject {
   name: string
@@ -11,18 +17,30 @@ interface SeedProject {
   status: ProjectStatus
 }
 
-interface SeedTeam {
+/**
+ * A PERSON, not a group. The Payload slug is still `teams` on purpose (see
+ * collections/TeamMembers.ts) — only the meaning and the labels changed.
+ *
+ * `email` is required: the collection is auth-enabled, so Payload will not accept a
+ * document without a unique address. `password` is likewise required at create time.
+ */
+interface SeedTeamMember {
   name: string
+  email: string
+  role: TeamMemberRole
   description: string | null
   color: string
+  /** Omitted means active. Inactive people keep their history but drop out of pickers. */
+  active?: boolean
 }
 
 interface SeedTicket {
   title: string
-  status: TicketStatus
+  /** A status `key`. These are the seeded defaults; a workspace may define others. */
+  status: string
   priority: TicketPriority
   projectPrefix: string
-  teamName: string | null
+  assigneeName: string | null
   labels: { name: string; color: string }[]
   blockedByTitles?: string[]
 }
@@ -72,46 +90,78 @@ const SEED_PROJECTS: SeedProject[] = [
   },
 ]
 
-const SEED_TEAMS: SeedTeam[] = [
+/**
+ * Fictional people, deliberately domain-neutral — this is sample data for anyone who
+ * clones the tool, not a picture of any particular organization. Addresses use the
+ * reserved `example.com` domain so nothing here can reach a real inbox.
+ */
+const SEED_TEAM_MEMBERS: SeedTeamMember[] = [
   {
-    name: 'Frontend Engineering',
-    description: 'Web and mobile client development',
+    name: 'Dana Whitfield',
+    email: 'dana.whitfield@example.com',
+    role: TeamMemberRole.ADMIN,
+    description: 'Runs the roadmap and keeps the board honest',
+    color: '#8b5cf6',
+  },
+  {
+    name: 'Alex Moreau',
+    email: 'alex.moreau@example.com',
+    role: TeamMemberRole.MEMBER,
+    description: 'Web and mobile client work',
     color: '#3b82f6',
   },
   {
-    name: 'Backend Engineering',
-    description: 'API and Database management',
+    name: 'Sam Okafor',
+    email: 'sam.okafor@example.com',
+    role: TeamMemberRole.MEMBER,
+    description: 'APIs and data',
     color: '#10b981',
   },
   {
-    name: 'QA & Testing',
+    name: 'Nina Kovacs',
+    email: 'nina.kovacs@example.com',
+    role: TeamMemberRole.MEMBER,
     description: 'Quality assurance and automated testing',
     color: '#f97316',
   },
   {
-    name: 'Design',
-    description: 'UI/UX and Brand design',
+    name: 'Priya Raman',
+    email: 'priya.raman@example.com',
+    role: TeamMemberRole.MEMBER,
+    description: 'Interface and brand design',
     color: '#ec4899',
   },
   {
-    name: 'Product Management',
-    description: 'Product strategy and roadmap',
-    color: '#8b5cf6',
-  },
-  {
-    name: 'Marketing',
-    description: 'Growth and branding',
+    name: 'Luis Ferreira',
+    email: 'luis.ferreira@example.com',
+    role: TeamMemberRole.MEMBER,
+    description: 'Growth and communications',
     color: '#f59e0b',
   },
   {
-    name: 'DevOps',
-    description: 'Infrastructure and CI/CD',
+    name: 'Ravi Anand',
+    email: 'ravi.anand@example.com',
+    role: TeamMemberRole.MEMBER,
+    description: 'Infrastructure and delivery pipelines',
     color: '#06b6d4',
   },
   {
-    name: 'Customer Success',
-    description: 'Support and user happiness',
+    // An automated caller. Agents get their own identity and API key rather than sharing
+    // one token, so every write the automation makes is attributable to it.
+    name: 'Intake Agent',
+    email: 'intake.agent@example.com',
+    role: TeamMemberRole.AGENT,
+    description: 'Automated caller that files incoming requests',
     color: '#14b8a6',
+  },
+  {
+    // Kept to exercise the inactive path: history is preserved, assignment pickers hide them.
+    name: 'Chris Lindqvist',
+    email: 'chris.lindqvist@example.com',
+    role: TeamMemberRole.MEMBER,
+    description: 'Former team member — retained for history',
+    color: '#64748b',
+    active: false,
   },
 ]
 
@@ -122,7 +172,7 @@ const SEED_TICKETS: SeedTicket[] = [
     status: TicketStatus.DONE,
     priority: TicketPriority.HIGH,
     projectPrefix: 'WEB',
-    teamName: 'Design',
+    assigneeName: 'Priya Raman',
     labels: [{ name: 'design', color: '#ec4899' }],
   },
   {
@@ -130,7 +180,7 @@ const SEED_TICKETS: SeedTicket[] = [
     status: TicketStatus.DONE,
     priority: TicketPriority.HIGH,
     projectPrefix: 'WEB',
-    teamName: 'Design',
+    assigneeName: 'Priya Raman',
     labels: [{ name: 'design', color: '#ec4899' }],
     blockedByTitles: ['Finalize new brand guidelines'],
   },
@@ -139,7 +189,7 @@ const SEED_TICKETS: SeedTicket[] = [
     status: TicketStatus.IN_PROGRESS,
     priority: TicketPriority.MEDIUM,
     projectPrefix: 'WEB',
-    teamName: 'Frontend Engineering',
+    assigneeName: 'Alex Moreau',
     labels: [{ name: 'frontend', color: '#3b82f6' }],
     blockedByTitles: ['Design homepage wireframes'],
   },
@@ -148,7 +198,7 @@ const SEED_TICKETS: SeedTicket[] = [
     status: TicketStatus.TODO,
     priority: TicketPriority.MEDIUM,
     projectPrefix: 'WEB',
-    teamName: 'Frontend Engineering',
+    assigneeName: 'Alex Moreau',
     labels: [{ name: 'frontend', color: '#3b82f6' }],
     blockedByTitles: ['Design homepage wireframes'],
   },
@@ -159,7 +209,7 @@ const SEED_TICKETS: SeedTicket[] = [
     status: TicketStatus.DONE,
     priority: TicketPriority.URGENT,
     projectPrefix: 'APP',
-    teamName: 'Product Management',
+    assigneeName: 'Dana Whitfield',
     labels: [{ name: 'planning', color: '#64748b' }],
   },
   {
@@ -167,7 +217,7 @@ const SEED_TICKETS: SeedTicket[] = [
     status: TicketStatus.DONE,
     priority: TicketPriority.MEDIUM,
     projectPrefix: 'APP',
-    teamName: 'QA & Testing',
+    assigneeName: 'Nina Kovacs',
     labels: [{ name: 'qa', color: '#f97316' }],
   },
   {
@@ -175,7 +225,7 @@ const SEED_TICKETS: SeedTicket[] = [
     status: TicketStatus.IN_PROGRESS,
     priority: TicketPriority.HIGH,
     projectPrefix: 'APP',
-    teamName: 'Backend Engineering',
+    assigneeName: 'Sam Okafor',
     labels: [{ name: 'auth', color: '#ef4444' }, { name: 'api', color: '#10b981' }],
     blockedByTitles: ['Define API contract for Auth'],
   },
@@ -184,7 +234,7 @@ const SEED_TICKETS: SeedTicket[] = [
     status: TicketStatus.TODO,
     priority: TicketPriority.MEDIUM,
     projectPrefix: 'APP',
-    teamName: 'Frontend Engineering',
+    assigneeName: 'Alex Moreau',
     labels: [{ name: 'mobile', color: '#8b5cf6' }],
     blockedByTitles: ['Implement OAuth logic'],
   },
@@ -195,7 +245,7 @@ const SEED_TICKETS: SeedTicket[] = [
     status: TicketStatus.DONE,
     priority: TicketPriority.HIGH,
     projectPrefix: 'MKT',
-    teamName: 'Marketing',
+    assigneeName: 'Luis Ferreira',
     labels: [{ name: 'strategy', color: '#f59e0b' }],
   },
   {
@@ -203,7 +253,7 @@ const SEED_TICKETS: SeedTicket[] = [
     status: TicketStatus.IN_PROGRESS,
     priority: TicketPriority.MEDIUM,
     projectPrefix: 'MKT',
-    teamName: 'Design',
+    assigneeName: 'Priya Raman',
     labels: [{ name: 'design', color: '#ec4899' }],
     blockedByTitles: ['Identify target audience for Q1'],
   },
@@ -212,7 +262,7 @@ const SEED_TICKETS: SeedTicket[] = [
     status: TicketStatus.TODO,
     priority: TicketPriority.HIGH,
     projectPrefix: 'MKT',
-    teamName: 'Marketing',
+    assigneeName: 'Luis Ferreira',
     labels: [{ name: 'ads', color: '#3b82f6' }],
     blockedByTitles: ['Create social media assets'],
   },
@@ -223,7 +273,7 @@ const SEED_TICKETS: SeedTicket[] = [
     status: TicketStatus.IN_PROGRESS,
     priority: TicketPriority.URGENT,
     projectPrefix: 'OPS',
-    teamName: 'DevOps',
+    assigneeName: 'Ravi Anand',
     labels: [{ name: 'infrastructure', color: '#06b6d4' }],
   },
   {
@@ -231,7 +281,7 @@ const SEED_TICKETS: SeedTicket[] = [
     status: TicketStatus.TODO,
     priority: TicketPriority.LOW,
     projectPrefix: 'OPS',
-    teamName: 'DevOps',
+    assigneeName: 'Ravi Anand',
     labels: [{ name: 'ci/cd', color: '#8b5cf6' }],
   },
   {
@@ -239,7 +289,7 @@ const SEED_TICKETS: SeedTicket[] = [
     status: TicketStatus.TODO,
     priority: TicketPriority.MEDIUM,
     projectPrefix: 'OPS',
-    teamName: 'DevOps',
+    assigneeName: 'Ravi Anand',
     labels: [{ name: 'reliability', color: '#10b981' }],
     blockedByTitles: ['Migrate DB to new cluster'],
   },
@@ -254,17 +304,53 @@ async function seed() {
   console.log('Clearing existing data...')
   await payload.delete({ collection: 'tickets', where: {} })
   await payload.delete({ collection: 'projects', where: {} })
+  // Slug is `teams`; the documents are Team Members (people). Deliberate — see
+  // collections/TeamMembers.ts.
   await payload.delete({ collection: 'teams', where: {} })
+  await payload.delete({ collection: 'statuses', where: {} })
 
-  // Create teams
-  console.log('Creating teams...')
-  const teamMap = new Map<string, string>()
-  for (const team of SEED_TEAMS) {
+  /**
+   * Statuses are DATA, so the board has no columns until these rows exist. Seed them
+   * first: every ticket below is created with one of these keys.
+   */
+  console.log('Creating statuses...')
+  for (const status of DEFAULT_STATUSES) {
+    await payload.create({
+      collection: 'statuses',
+      data: {
+        key: status.key,
+        label: status.label,
+        color: status.color,
+        order: status.order,
+        isDefault: Boolean(status.isDefault),
+        isDone: Boolean(status.isDone),
+        isBlocked: Boolean(status.isBlocked),
+      },
+    })
+  }
+
+  /**
+   * The `teams` collection is auth-enabled, so a unique email and a password are
+   * required on every document. This is sample data — override the password with
+   * SEED_PASSWORD before pointing this at anything you care about.
+   */
+  console.log('Creating team members...')
+  const seedPassword = process.env.SEED_PASSWORD || 'local-pm-seed-password'
+  const memberMap = new Map<string, string>()
+  for (const member of SEED_TEAM_MEMBERS) {
     const created = await payload.create({
       collection: 'teams',
-      data: team as any,
+      data: {
+        name: member.name,
+        email: member.email,
+        password: seedPassword,
+        role: member.role,
+        active: member.active ?? true,
+        description: member.description,
+        color: member.color,
+      },
     })
-    teamMap.set(team.name, created.id)
+    memberMap.set(member.name, created.id)
   }
 
   // Create projects
@@ -284,7 +370,7 @@ async function seed() {
 
   for (const ticket of SEED_TICKETS) {
     const projectId = projectMap.get(ticket.projectPrefix)
-    const teamId = ticket.teamName ? teamMap.get(ticket.teamName) : null
+    const assigneeId = ticket.assigneeName ? memberMap.get(ticket.assigneeName) : null
 
     if (!projectId) {
       console.error(`Project not found: ${ticket.projectPrefix}`)
@@ -298,7 +384,7 @@ async function seed() {
         status: ticket.status,
         priority: ticket.priority,
         project: projectId,
-        team: teamId,
+        team: assigneeId,
         labels: ticket.labels,
       },
     })

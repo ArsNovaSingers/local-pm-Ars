@@ -1,29 +1,10 @@
-import { TeamsList } from '@/components/teams/TeamsList'
-import { getPayload } from 'payload'
-import config from '@payload-config'
+import { permanentRedirect } from 'next/navigation'
 
-export const dynamic = 'force-dynamic'
-
-const PAGE_SIZE = 20
-
-export default async function TeamsPage() {
-  const payload = await getPayload({ config })
-
-  const teamsResult = await payload.find({
-    collection: 'teams',
-    limit: PAGE_SIZE,
-    page: 1,
-    sort: '-createdAt',
-  })
-
-  return (
-    <TeamsList
-      initialTeams={teamsResult.docs}
-      initialPagination={{
-        page: teamsResult.page ?? 1,
-        totalPages: teamsResult.totalPages,
-        hasNextPage: teamsResult.hasNextPage,
-      }}
-    />
-  )
+/**
+ * `/teams` became `/people` when the collection stopped meaning "a group" and started
+ * meaning "a person". Bookmarks, pasted links and anything an agent stored still point
+ * here, so this stays as a permanent redirect rather than a 404.
+ */
+export default function TeamsRedirectPage() {
+  permanentRedirect('/people')
 }
