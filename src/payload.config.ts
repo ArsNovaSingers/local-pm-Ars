@@ -10,6 +10,8 @@ import { Projects } from './collections/Projects'
 import { Statuses } from './collections/Statuses'
 import { TeamMembers } from './collections/TeamMembers'
 import { Tickets } from './collections/Tickets'
+import { Comments } from './collections/Comments'
+import { Activity } from './collections/Activity'
 import { viewsScopeEndpoint, viewsWhoamiEndpoint } from './lib/endpoints'
 
 const filename = fileURLToPath(import.meta.url)
@@ -24,7 +26,7 @@ export default buildConfig({
       baseDir: path.resolve(dirname),
     },
   },
-  collections: [Projects, TeamMembers, Tickets, Statuses, Milestones, FieldDefinitions],
+  collections: [Projects, TeamMembers, Tickets, Statuses, Milestones, FieldDefinitions, Comments, Activity],
   endpoints: [viewsScopeEndpoint, viewsWhoamiEndpoint],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',
