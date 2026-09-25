@@ -37,6 +37,7 @@ import {
 } from './status-utils'
 import { RichTextEditor, RichTextDisplay } from '@/components/ui/RichTextEditor'
 import { DependencyGraph } from './DependencyGraph'
+import { TicketActivity } from './TicketActivity'
 import type { Milestone, Project, Team, Ticket } from '@/payload-types'
 
 interface Subtask {
@@ -166,7 +167,7 @@ export function TicketDetailModal({
   }
 
   const handleDelete = async () => {
-    if (!confirm('Are you sure you want to delete this ticket?')) return
+    if (!confirm('Move this ticket to the Trash? You can restore it from the Trash for 30 days.')) return
     onDelete(ticket.id)
     onClose()
   }
@@ -863,6 +864,7 @@ export function TicketDetailModal({
                     <BlocksSection />
                   </div>
                   <DependencyGraphSection />
+                  <TicketActivity ticketId={ticket.id} />
                 </div>
 
                 {/* Right Column - Metadata Sidebar */}
@@ -905,6 +907,7 @@ export function TicketDetailModal({
                       <BlockedBySection />
                       <BlocksSection />
                       <DependencyGraphSection />
+                      <TicketActivity ticketId={ticket.id} />
                     </div>
 
                     {/* Sidebar */}

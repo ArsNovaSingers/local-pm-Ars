@@ -22,6 +22,7 @@ import { TicketModal } from './TicketModal'
 import { TicketDetailModal } from './TicketDetailModal'
 import type { BoardStatus } from './status-utils'
 import type { Milestone, Project, Team, Ticket } from '@/payload-types'
+import { moveToTrash } from '@/lib/client-trash'
 
 const TICKETS_PER_PAGE = 20
 
@@ -450,7 +451,7 @@ export function KanbanBoard({
 
   const handleDeleteTicket = async (ticketId: string) => {
     try {
-      await fetch(`/api/tickets/${ticketId}`, { method: 'DELETE' })
+      await moveToTrash('tickets', ticketId)
       setTickets((prev) => prev.filter((t) => t.id !== ticketId))
     } catch (error) {
       console.error('Failed to delete ticket:', error)

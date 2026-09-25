@@ -14,6 +14,7 @@ import { useInfiniteScroll } from '@/hooks/useInfiniteScroll'
  * user-visible string here says "Team Member".
  */
 import type { Team, Project, Ticket } from '@/payload-types'
+import { deactivatePerson, moveToTrash } from '@/lib/client-trash'
 
 const ROLE_LABELS: Record<string, string> = {
   admin: 'Admin',
@@ -147,8 +148,8 @@ export function TeamMembersList({ initialTeamMembers, initialPagination }: TeamM
     try {
       const { team } = deleteConfirm
 
-      // Delete the person (their tickets are unassigned, never deleted)
-      await fetch(`/api/teams/${team.id}`, { method: 'DELETE' })
+      // Deactivate rather than delete: history and past assignments are kept
+      await deactivatePerson(team.id)
       setTeams((prev) => prev.filter((t) => t.id !== team.id))
       setDeleteConfirm(null)
     } catch (error) {
@@ -195,7 +196,7 @@ export function TeamMembersList({ initialTeamMembers, initialPagination }: TeamM
 
   const handleTicketDelete = async (ticketId: string) => {
     try {
-      await fetch(`/api/tickets/${ticketId}`, { method: 'DELETE' })
+      await moveToTrash('tickets', ticketId)
       setSelectedTicket(null)
     } catch (error) {
       console.error('Failed to delete ticket:', error)
