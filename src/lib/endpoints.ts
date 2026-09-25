@@ -21,3 +21,20 @@ export const viewsScopeEndpoint: Endpoint = {
     return Response.json(data)
   },
 }
+
+/**
+ * `/api/views/whoami` — the Team Member this request is authenticated as, or `{ user: null }`.
+ * The MCP server uses it at sign-in and on every token check to ask "is this email an active
+ * Team Member?" without needing read access to the whole people list.
+ */
+export const viewsWhoamiEndpoint: Endpoint = {
+  path: '/views/whoami',
+  method: 'get',
+  handler: async (req: PayloadRequest) => {
+    const u = req.user as { id?: string; email?: string; name?: string; role?: string; active?: boolean } | null
+    if (!u) return Response.json({ user: null })
+    return Response.json({
+      user: { id: u.id, email: u.email, name: u.name, role: u.role, active: u.active !== false },
+    })
+  },
+}

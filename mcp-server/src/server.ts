@@ -11,6 +11,7 @@ import {
   Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import { GoogleAuth, IdTokenClient } from 'google-auth-library';
+import { annotateTool, currentActorHeaders } from './context.js';
 
 const BASE_URL = process.env.LOCAL_PM_URL || 'http://localhost:3010';
 
@@ -258,7 +259,7 @@ function slimTicket(ticket: Record<string, unknown>, fieldsToInclude: Set<string
 }
 
 // Helper function to make API requests
-async function apiRequest(
+export async function apiRequest(
   endpoint: string,
   method: string = 'GET',
   body?: unknown
@@ -266,6 +267,7 @@ async function apiRequest(
   const url = `${BASE_URL}/api${endpoint}`;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    ...currentActorHeaders(),
   };
 
   const iapClient = await getIapClient();
@@ -1953,7 +1955,7 @@ export function createServer(): Server {
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools,
+    tools: tools.map(annotateTool),
   }));
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
