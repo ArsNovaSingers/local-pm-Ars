@@ -1,5 +1,6 @@
 import type { CollectionConfig } from 'payload'
 import { collectionAccess } from '@/lib/access'
+import { iapStrategy } from '@/lib/iap-auth'
 import { TEAM_MEMBER_ROLE_OPTIONS, TeamMemberRole } from '@/types/enums'
 
 /**
@@ -22,6 +23,7 @@ export const TeamMembers: CollectionConfig = {
   labels: { singular: 'Team Member', plural: 'Team Members' },
   auth: {
     useAPIKey: true,
+    strategies: [iapStrategy], // runs alongside password + API-key login; see src/lib/iap-auth.ts
   },
   admin: {
     useAsTitle: 'name',

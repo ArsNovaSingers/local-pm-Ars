@@ -25,6 +25,7 @@
     "@payloadcms/richtext-lexical": "^3.68.4",
     "@payloadcms/ui": "^3.68.4",
     "dotenv": "^17.2.3",
+    "google-auth-library": "^9.15.1",
     "graphql": "^16.12.0",
     "lucide-react": "^0.563.0",
     "next": "^15.4.10",
