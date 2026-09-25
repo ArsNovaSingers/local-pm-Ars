@@ -12,6 +12,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { GoogleAuth, IdTokenClient } from 'google-auth-library';
 import { annotateTool, currentActorHeaders } from './context.js';
+import { EXTRA_TOOLS, NOT_HANDLED, augmentCoreTools, handleExtraTool, resolvePeople, shapeResult, validateArgs } from './extra-tools.js';
 
 const BASE_URL = process.env.LOCAL_PM_URL || 'http://localhost:3010';
 
@@ -316,7 +317,7 @@ const FALLBACK_STATUSES: StatusRow[] = [
 ];
 
 // Read the workspace's configured workflow states, in board order.
-async function fetchStatusRows(): Promise<StatusRow[]> {
+export async function fetchStatusRows(): Promise<StatusRow[]> {
   try {
     const response = await apiRequest('/statuses?limit=200&page=1&depth=0&sort=order') as {
       docs?: StatusRow[];
@@ -330,7 +331,7 @@ async function fetchStatusRows(): Promise<StatusRow[]> {
 }
 
 // Define all tools
-const tools: Tool[] = [
+export const tools: Tool[] = [
   // ============== PROJECTS ==============
   {
     name: 'list_projects',
@@ -1283,7 +1284,7 @@ const tools: Tool[] = [
  * schema it started with — renaming rather than aliasing would break those sessions with
  * no warning and no fix on the user's side.
  */
-const TOOL_ALIASES: Record<string, string> = {
+export const TOOL_ALIASES: Record<string, string> = {
   list_team_members: 'list_teams',
   get_team_member: 'get_team',
   create_team_member: 'create_team',
@@ -1302,14 +1303,14 @@ const TOOL_ALIASES: Record<string, string> = {
  * from a genuinely missing record. That trap cost real debugging time on 2026-09-04 and again on
  * 2026-09-07. Normalising here is cheaper than everyone rediscovering it.
  */
-const ARG_ALIASES: Record<string, Record<string, string>> = {
+export const ARG_ALIASES: Record<string, Record<string, string>> = {
   get_ticket:     { ticketId: 'id', ticket: 'id' },
   update_ticket:  { ticketId: 'id', ticket: 'id', teamId: 'team', projectId: 'project' },
   move_ticket:    { ticketId: 'id', ticket: 'id' },
   delete_ticket:  { ticketId: 'id', ticket: 'id' },
   create_ticket:  { projectId: 'project', teamId: 'team' },
-  list_tickets:   { project: 'projectId', team: 'teamId' },
-  get_board:      { project: 'projectId', team: 'teamId' },
+  list_tickets:   { project: 'projectId', team: 'teamId', milestone: 'milestoneId' },
+  get_board:      { project: 'projectId', team: 'teamId', milestone: 'milestoneId' },
   toggle_subtask: { id: 'ticketId', ticket: 'ticketId' },
   add_subtask:    { id: 'ticketId', ticket: 'ticketId' },
   get_project:    { projectId: 'id', project: 'id' },
@@ -1342,7 +1343,7 @@ function normalizeArgs(name: string, args: Record<string, unknown>): Record<stri
  * Resolve either a Mongo document id or a human ticket key ("TKT-1", "HUB-16") to a Mongo id.
  * People and agents both refer to tickets by their key; only the id addresses the REST route.
  */
-async function resolveTicketId(value: unknown, toolName: string): Promise<string> {
+export async function resolveTicketId(value: unknown, toolName: string): Promise<string> {
   const raw = typeof value === 'string' ? value.trim() : '';
   if (!raw) {
     throw new Error(
@@ -1361,7 +1362,23 @@ async function resolveTicketId(value: unknown, toolName: string): Promise<string
   return id;
 }
 
-async function handleToolCall(
+/** Every tool this server exposes: the originals (with extra arguments) plus EXTRA_TOOLS. */
+function allTools(): Tool[] {
+  return [...augmentCoreTools(tools), ...EXTRA_TOOLS];
+}
+
+/** Entry point for every tool call: validate, resolve people, dispatch, shape the reply. */
+async function handleToolCall(name: string, rawArgs: Record<string, unknown>): Promise<unknown> {
+  const tool = TOOL_ALIASES[name] || name;
+  let args = normalizeArgs(tool, rawArgs ?? {});
+  validateArgs(name in TOOL_ALIASES ? name : tool, args, allTools());
+  args = await resolvePeople(tool, args);
+  const extra = await handleExtraTool(tool, args);
+  if (extra !== NOT_HANDLED) return extra;
+  return shapeResult(tool, args, await handleCoreToolCall(tool, args));
+}
+
+async function handleCoreToolCall(
   name: string,
   args: Record<string, unknown>
 ): Promise<unknown> {
@@ -1955,7 +1972,7 @@ export function createServer(): Server {
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: tools.map(annotateTool),
+    tools: allTools().map(annotateTool),
   }));
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
