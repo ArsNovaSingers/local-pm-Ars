@@ -2,12 +2,13 @@
 
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
-import { LayoutDashboard, GanttChartSquare, Workflow } from 'lucide-react'
+import { LayoutDashboard, GanttChartSquare, Workflow, GitFork } from 'lucide-react'
 
 const VIEWS = [
   { href: '/board', label: 'Board', icon: LayoutDashboard },
   { href: '/timeline', label: 'Timeline', icon: GanttChartSquare },
   { href: '/network', label: 'Network', icon: Workflow },
+  { href: '/tree', label: 'Tree', icon: GitFork },
 ]
 
 /**

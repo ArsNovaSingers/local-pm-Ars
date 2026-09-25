@@ -1,0 +1,149 @@
+/* State colours for the Tree view. Semantic, and deliberately separate from the
+   indigo brand accent. The app is dark-first; values are tuned for zinc-950. */
+.root {
+  --tree-crit: #ef4444;
+  --tree-crit-bg: rgba(239, 68, 68, 0.12);
+  --tree-soon: #f59e0b;
+  --tree-soon-bg: rgba(245, 158, 11, 0.11);
+  --tree-prog: #14b8a6;
+  --tree-prog-bg: rgba(20, 184, 166, 0.11);
+  --tree-todo: #3f3f46;
+  --tree-todo-bg: #18181b;
+  --tree-done: #52525b;
+  --tree-edge: #3f3f46;
+  --tree-dep: #a1a1aa;
+  --tree-path: #f87171;
+}
+
+.canvas {
+  background-color: var(--background);
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 24px 24px;
+  touch-action: none;
+  cursor: grab;
+}
+.canvas[data-panning='true'] {
+  cursor: grabbing;
+}
+
+.world {
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.node {
+  position: absolute;
+  transform: translateY(-50%);
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--tree-todo);
+  background: var(--tree-todo-bg);
+  transition: border-color 120ms, box-shadow 120ms, opacity 120ms;
+}
+.node:hover {
+  border-color: #71717a;
+}
+.node:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.state-todo {
+  border-color: var(--tree-todo);
+}
+.state-prog {
+  border-color: var(--tree-prog);
+  background: linear-gradient(0deg, var(--tree-prog-bg), var(--tree-prog-bg)), var(--tree-todo-bg);
+}
+.state-soon {
+  border-color: var(--tree-soon);
+  background: linear-gradient(0deg, var(--tree-soon-bg), var(--tree-soon-bg)), var(--tree-todo-bg);
+}
+.state-crit {
+  border-color: var(--tree-crit);
+  background: linear-gradient(0deg, var(--tree-crit-bg), var(--tree-crit-bg)), var(--tree-todo-bg);
+  animation: critPulse 2.2s ease-in-out infinite;
+}
+.state-done {
+  border-color: var(--tree-done);
+  opacity: 0.55;
+}
+.state-done .title {
+  text-decoration: line-through;
+  color: var(--muted-foreground);
+}
+
+.onPath {
+  outline: 2px dashed var(--tree-path);
+  outline-offset: 3px;
+}
+.selected {
+  box-shadow: 0 0 0 2px var(--primary), 0 8px 24px rgba(0, 0, 0, 0.5) !important;
+}
+.dimmed {
+  opacity: 0.28;
+}
+
+@keyframes critPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.0), 0 0 6px 0 rgba(239, 68, 68, 0.25);
+  }
+  50% {
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.22), 0 0 18px 2px rgba(239, 68, 68, 0.45);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .state-crit {
+    animation: none;
+    box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.55);
+  }
+  .node {
+    transition: none;
+  }
+  .panel {
+    transition: none !important;
+  }
+}
+
+.edgeTree {
+  fill: none;
+  stroke: var(--tree-edge);
+  stroke-width: 1.5;
+}
+.edgeDep {
+  fill: none;
+  stroke: var(--tree-dep);
+  stroke-width: 1.5;
+  stroke-dasharray: 6 5;
+  opacity: 0.85;
+}
+.edgeDepDone {
+  opacity: 0.3;
+}
+.edgePath {
+  stroke: var(--tree-path);
+  stroke-width: 2.5;
+  opacity: 1;
+}
+.edgeActive {
+  stroke: #e4e4e7;
+  opacity: 1;
+}
+
+.chip-done { background: rgba(82, 82, 91, 0.35); color: #a1a1aa; }
+.chip-crit { background: rgba(239, 68, 68, 0.16); color: #fca5a5; }
+.chip-soon { background: rgba(245, 158, 11, 0.16); color: #fcd34d; }
+.chip-prog { background: rgba(20, 184, 166, 0.16); color: #5eead4; }
+.chip-todo { background: rgba(113, 113, 122, 0.2); color: #d4d4d8; }
+
+.dot-done { background: var(--tree-done); }
+.dot-crit { background: var(--tree-crit); }
+.dot-soon { background: var(--tree-soon); }
+.dot-prog { background: var(--tree-prog); }
+.dot-todo { background: #71717a; }
+
+.panel {
+  transition: transform 200ms ease-out;
+}
