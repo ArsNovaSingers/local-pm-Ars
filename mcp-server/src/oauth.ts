@@ -58,13 +58,13 @@ export const GOOGLE_CALLBACK_PATH = '/oauth/google/callback';
 type Sealed = Record<string, unknown>;
 
 export function loadOAuthConfig(): OAuthConfig | undefined {
-  const {
-    PUBLIC_URL,
-    GOOGLE_OAUTH_CLIENT_ID,
-    GOOGLE_OAUTH_CLIENT_SECRET,
-    OAUTH_SECRET,
-    OAUTH_ALLOWED_DOMAIN,
-  } = process.env;
+  // Trimmed: values mounted from Secret Manager often carry the newline they were pasted with.
+  const env = (k: string) => process.env[k]?.trim() || undefined;
+  const PUBLIC_URL = env('PUBLIC_URL');
+  const GOOGLE_OAUTH_CLIENT_ID = env('GOOGLE_OAUTH_CLIENT_ID');
+  const GOOGLE_OAUTH_CLIENT_SECRET = env('GOOGLE_OAUTH_CLIENT_SECRET');
+  const OAUTH_SECRET = env('OAUTH_SECRET');
+  const OAUTH_ALLOWED_DOMAIN = env('OAUTH_ALLOWED_DOMAIN');
   if (!PUBLIC_URL || !GOOGLE_OAUTH_CLIENT_ID || !GOOGLE_OAUTH_CLIENT_SECRET || !OAUTH_SECRET || !OAUTH_ALLOWED_DOMAIN) {
     return undefined;
   }

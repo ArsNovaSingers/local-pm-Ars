@@ -22,8 +22,8 @@ import { actorContext, Actor } from './context.js';
 import { GoogleOAuthProvider, googleCallbackRouter, loadOAuthConfig } from './oauth.js';
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 8080;
-const AUTH_TOKEN = process.env.MCP_AUTH_TOKEN;
-const LEGACY_KEY_ACTS_AS = process.env.LEGACY_KEY_ACTS_AS?.toLowerCase();
+const AUTH_TOKEN = process.env.MCP_AUTH_TOKEN?.trim() || undefined;
+const LEGACY_KEY_ACTS_AS = process.env.LEGACY_KEY_ACTS_AS?.trim().toLowerCase() || undefined;
 const oauthConfig = loadOAuthConfig();
 const oauthProvider = oauthConfig ? new GoogleOAuthProvider(oauthConfig) : undefined;
 
