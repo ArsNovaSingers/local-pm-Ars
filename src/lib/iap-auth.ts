@@ -51,7 +51,13 @@ export async function verifiedIapEmail(headers: Headers): Promise<string | null>
     const email = ticket.getPayload()?.email
     return email ? email.toLowerCase() : null
   } catch (err) {
-    console.error('IAP assertion rejected:', err instanceof Error ? err.message : err)
+    // Log the (non-secret) audience the token was minted for: the expected format differs by
+    // IAP backend type and a mismatch is the most likely misconfiguration.
+    let aud = '?'
+    try {
+      aud = String(JSON.parse(Buffer.from(jwt.split('.')[1], 'base64url').toString()).aud)
+    } catch {}
+    console.error(`IAP assertion rejected (token aud=${aud}, expected ${audience}):`, err instanceof Error ? err.message : err)
     return null
   }
 }
