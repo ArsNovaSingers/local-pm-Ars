@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Plus, Pencil, Trash2, Flag, Loader2 } from 'lucide-react'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import type { Milestone, Project } from '@/payload-types'
+import { moveToTrash } from '@/lib/client-trash'
 
 /**
  * Milestones are deliberately domain-free: a concert, a product launch, a grant deadline
@@ -114,7 +115,7 @@ export function MilestonesList({ initialMilestones, projects, ticketCounts }: Mi
     if (!deleteTarget) return
     setIsDeleting(true)
     try {
-      await fetch(`/api/milestones/${deleteTarget.id}`, { method: 'DELETE' })
+      await moveToTrash('milestones', deleteTarget.id)
       setMilestones((prev) => prev.filter((m) => m.id !== deleteTarget.id))
       setDeleteTarget(null)
     } finally {

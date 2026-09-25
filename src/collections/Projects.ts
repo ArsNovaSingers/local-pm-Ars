@@ -2,6 +2,7 @@ import type { CollectionConfig } from 'payload'
 import { ProjectStatus, PROJECT_STATUS_OPTIONS, PROJECT_ICONS, PROJECT_COLORS } from '@/types/enums'
 import { collectionAccess } from '@/lib/access'
 import { stampActor, actorFields } from '@/lib/actor'
+import { requireTrashedBeforeDelete } from '@/lib/trash'
 
 export const Projects: CollectionConfig = {
   slug: 'projects',
@@ -11,8 +12,10 @@ export const Projects: CollectionConfig = {
     description: 'Projects organize related tickets together',
   },
   access: collectionAccess,
+  trash: true, // see src/lib/trash.ts
   hooks: {
     beforeChange: [stampActor],
+    beforeDelete: [requireTrashedBeforeDelete],
   },
   fields: [
     ...actorFields,

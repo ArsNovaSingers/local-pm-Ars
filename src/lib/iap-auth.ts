@@ -65,11 +65,18 @@ export async function verifiedIapEmail(headers: Headers): Promise<string | null>
 export const iapStrategy: AuthStrategy = {
   name: 'iap',
   authenticate: async ({ headers, payload }: AuthStrategyFunctionArgs) => {
-    const iapEmail = await verifiedIapEmail(headers)
+    // Local development only: act as the person named in the header without IAP. Hard-disabled
+    // when NODE_ENV=production (every deployed image), whatever the env var says.
+    const devActing =
+      process.env.NODE_ENV !== 'production' && process.env.LOCAL_PM_DEV_TRUST_ACTING_HEADER === 'true'
+        ? headers.get(ACTING_USER_HEADER)?.trim().toLowerCase()
+        : undefined
+
+    const iapEmail = devActing ? `dev:${devActing}` : await verifiedIapEmail(headers)
     if (!iapEmail) return { user: null }
 
-    let email = iapEmail
-    if (trustedAgents().has(iapEmail)) {
+    let email = devActing ?? iapEmail
+    if (!devActing && trustedAgents().has(iapEmail)) {
       const acting = headers.get(ACTING_USER_HEADER)?.trim().toLowerCase()
       if (!acting) return { user: null } // an agent acting as nobody is nobody
       email = acting

@@ -10,6 +10,7 @@ import { PROJECT_STATUS_OPTIONS, ProjectStatus } from '@/types/enums'
 import { useInfiniteScroll } from '@/hooks/useInfiniteScroll'
 import type { Project, Team, Ticket } from '@/payload-types'
 import * as Icons from 'lucide-react'
+import { moveProjectToTrash, moveToTrash } from '@/lib/client-trash'
 
 interface PaginationInfo {
   page: number
@@ -151,27 +152,18 @@ export function ProjectsList({ initialProjects, initialPagination }: ProjectsLis
 
     setIsDeleting(true)
     try {
-      const { project, ticketCount } = deleteConfirm
+      const { project } = deleteConfirm
 
-      // First, delete all tickets associated with this project
-      if (ticketCount > 0) {
-        // Fetch all ticket IDs for this project
-        const ticketsResponse = await fetch(
-          `/api/tickets?where[project][equals]=${project.id}&limit=1000`
-        )
-        const ticketsData = await ticketsResponse.json()
-        const tickets = ticketsData.docs || []
+      // Always look the tickets up rather than trusting ticketCount: it is -1 when the count
+      // failed to load, and the old code then deleted the project and orphaned its tickets.
+      const ticketsResponse = await fetch(
+        `/api/tickets?where[project][equals]=${project.id}&limit=1000&depth=0`
+      )
+      const ticketsData = await ticketsResponse.json()
+      const tickets = ticketsData.docs || []
 
-        // Delete each ticket
-        await Promise.all(
-          tickets.map((ticket: { id: string }) =>
-            fetch(`/api/tickets/${ticket.id}`, { method: 'DELETE' })
-          )
-        )
-      }
-
-      // Then delete the project
-      await fetch(`/api/projects/${project.id}`, { method: 'DELETE' })
+      // Tickets and project share one timestamp, so they are restored together.
+      await moveProjectToTrash(project.id, tickets.map((ticket: { id: string }) => ticket.id))
       setProjects((prev) => prev.filter((p) => p.id !== project.id))
       setDeleteConfirm(null)
     } catch (error) {
@@ -218,7 +210,7 @@ export function ProjectsList({ initialProjects, initialPagination }: ProjectsLis
 
   const handleTicketDelete = async (ticketId: string) => {
     try {
-      await fetch(`/api/tickets/${ticketId}`, { method: 'DELETE' })
+      await moveToTrash('tickets', ticketId)
       setSelectedTicket(null)
     } catch (error) {
       console.error('Failed to delete ticket:', error)
@@ -239,15 +231,17 @@ export function ProjectsList({ initialProjects, initialPagination }: ProjectsLis
     if (!deleteConfirm) return ''
     const { project, ticketCount } = deleteConfirm
 
+    const restoreNote = 'You can restore it from the Trash for 30 days.'
+
     if (ticketCount === -1) {
-      return `Are you sure you want to delete "${project.name}"?\n\nThis will also delete all associated tickets.`
+      return `Move "${project.name}" to the Trash?\n\nIts tickets go with it, and come back with it. ${restoreNote}`
     }
 
     if (ticketCount === 0) {
-      return `Are you sure you want to delete "${project.name}"?\n\nThis project has no tickets.`
+      return `Move "${project.name}" to the Trash?\n\nThis project has no tickets. ${restoreNote}`
     }
 
-    return `Are you sure you want to delete "${project.name}"?\n\nThis will permanently delete ${ticketCount} ticket${ticketCount === 1 ? '' : 's'} associated with this project.`
+    return `Move "${project.name}" to the Trash?\n\nIts ${ticketCount} ticket${ticketCount === 1 ? '' : 's'} go with it, and come back with it. ${restoreNote}`
   }
 
   return (

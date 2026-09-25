@@ -73,6 +73,8 @@ export interface Config {
     statuses: Status;
     milestones: Milestone;
     'field-definitions': FieldDefinition;
+    comments: Comment;
+    activity: Activity;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -86,6 +88,8 @@ export interface Config {
     statuses: StatusesSelect<false> | StatusesSelect<true>;
     milestones: MilestonesSelect<false> | MilestonesSelect<true>;
     'field-definitions': FieldDefinitionsSelect<false> | FieldDefinitionsSelect<true>;
+    comments: CommentsSelect<false> | CommentsSelect<true>;
+    activity: ActivitySelect<false> | ActivitySelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -218,6 +222,7 @@ export interface Project {
   ticketCounter?: number | null;
   updatedAt: string;
   createdAt: string;
+  deletedAt?: string | null;
 }
 /**
  * People who do the work. Stored under the slug "teams" for compatibility — the concept is a person, not a group.
@@ -376,6 +381,7 @@ export interface Ticket {
   sortOrder?: number | null;
   updatedAt: string;
   createdAt: string;
+  deletedAt?: string | null;
 }
 /**
  * Dated markers work is planned against. Rendered as vertical lines on the timeline.
@@ -395,6 +401,7 @@ export interface Milestone {
   project?: (string | null) | Project;
   updatedAt: string;
   createdAt: string;
+  deletedAt?: string | null;
 }
 /**
  * The workflow states this workspace uses. Board columns are built from these.
@@ -464,6 +471,48 @@ export interface FieldDefinition {
   createdAt: string;
 }
 /**
+ * Comments on tickets, newest last.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "comments".
+ */
+export interface Comment {
+  id: string;
+  ticket: string | Ticket;
+  body: string;
+  /**
+   * Set from the signed-in Team Member.
+   */
+  author?: (string | null) | Team;
+  updatedAt: string;
+  createdAt: string;
+  deletedAt?: string | null;
+}
+/**
+ * Automatic change history for tickets. Read-only.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "activity".
+ */
+export interface Activity {
+  id: string;
+  ticket?: (string | null) | Ticket;
+  project?: (string | null) | Project;
+  actor?: (string | null) | Team;
+  action: 'created' | 'updated' | 'trashed' | 'restored';
+  changes?:
+    | {
+        field?: string | null;
+        from?: string | null;
+        to?: string | null;
+        id?: string | null;
+      }[]
+    | null;
+  summary?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv".
  */
@@ -510,6 +559,14 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'field-definitions';
         value: string | FieldDefinition;
+      } | null)
+    | ({
+        relationTo: 'comments';
+        value: string | Comment;
+      } | null)
+    | ({
+        relationTo: 'activity';
+        value: string | Activity;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -569,6 +626,7 @@ export interface ProjectsSelect<T extends boolean = true> {
   ticketCounter?: T;
   updatedAt?: T;
   createdAt?: T;
+  deletedAt?: T;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
@@ -643,6 +701,7 @@ export interface TicketsSelect<T extends boolean = true> {
   sortOrder?: T;
   updatedAt?: T;
   createdAt?: T;
+  deletedAt?: T;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
@@ -671,6 +730,7 @@ export interface MilestonesSelect<T extends boolean = true> {
   project?: T;
   updatedAt?: T;
   createdAt?: T;
+  deletedAt?: T;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
@@ -688,6 +748,39 @@ export interface FieldDefinitionsSelect<T extends boolean = true> {
       };
   project?: T;
   description?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "comments_select".
+ */
+export interface CommentsSelect<T extends boolean = true> {
+  ticket?: T;
+  body?: T;
+  author?: T;
+  updatedAt?: T;
+  createdAt?: T;
+  deletedAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "activity_select".
+ */
+export interface ActivitySelect<T extends boolean = true> {
+  ticket?: T;
+  project?: T;
+  actor?: T;
+  action?: T;
+  changes?:
+    | T
+    | {
+        field?: T;
+        from?: T;
+        to?: T;
+        id?: T;
+      };
+  summary?: T;
   updatedAt?: T;
   createdAt?: T;
 }

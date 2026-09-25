@@ -1,0 +1,14 @@
+{
+  "name": "local-pm-backup",
+  "private": true,
+  "type": "module",
+  "description": "Nightly Local PM backup to Cloud Storage and 30-day Trash purge (LPM-2)",
+  "scripts": {
+    "backup": "node backup.mjs",
+    "restore": "node restore.mjs"
+  },
+  "dependencies": {
+    "@google-cloud/storage": "^7.14.0",
+    "mongodb": "^6.10.0"
+  }
+}

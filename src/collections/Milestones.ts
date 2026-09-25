@@ -1,5 +1,6 @@
 import type { CollectionConfig } from 'payload'
 import { collectionAccess } from '@/lib/access'
+import { requireTrashedBeforeDelete } from '@/lib/trash'
 
 /**
  * A dated point that work is planned against.
@@ -16,6 +17,8 @@ export const Milestones: CollectionConfig = {
     description: 'Dated markers work is planned against. Rendered as vertical lines on the timeline.',
   },
   access: collectionAccess,
+  trash: true, // see src/lib/trash.ts
+  hooks: { beforeDelete: [requireTrashedBeforeDelete] },
   defaultSort: 'date',
   fields: [
     { name: 'name', type: 'text', required: true },

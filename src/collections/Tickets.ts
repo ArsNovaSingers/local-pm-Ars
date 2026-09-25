@@ -2,6 +2,8 @@ import type { CollectionConfig, PayloadRequest } from 'payload'
 import { TicketPriority, TICKET_PRIORITY_OPTIONS, TicketStatus } from '@/types/enums'
 import { collectionAccess } from '@/lib/access'
 import { stampActor, actorFields } from '@/lib/actor'
+import { requireTrashedBeforeDelete } from '@/lib/trash'
+import { recordTicketActivity } from '@/lib/activity'
 
 export const Tickets: CollectionConfig = {
   slug: 'tickets',
@@ -11,7 +13,10 @@ export const Tickets: CollectionConfig = {
     description: 'Individual work items within projects',
   },
   access: collectionAccess,
+  trash: true, // deletes go to a restorable Trash — see src/lib/trash.ts
   hooks: {
+    beforeDelete: [requireTrashedBeforeDelete],
+    afterChange: [recordTicketActivity],
     beforeChange: [
       stampActor,
       async ({ data, req, operation, originalDoc }) => {
