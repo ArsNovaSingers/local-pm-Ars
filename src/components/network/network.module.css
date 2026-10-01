@@ -1,0 +1,190 @@
+/* Network view state colours. Semantic, separate from the indigo brand accent; tuned
+   for the app's dark (zinc-950) surface. */
+.root {
+  --net-ready: #22c55e;
+  --net-ready-bg: rgba(34, 197, 94, 0.09);
+  --net-blocked: #ef4444;
+  --net-blocked-bg: rgba(239, 68, 68, 0.08);
+  --net-prog: #14b8a6;
+  --net-prog-bg: rgba(20, 184, 166, 0.09);
+  --net-card: #18181b;
+  --net-border: #3f3f46;
+  --net-edge: #a1a1aa;
+  --net-path: #f59e0b;
+  --net-conflict: #fb923c;
+}
+
+.canvas {
+  background-color: var(--background);
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 24px 24px;
+  touch-action: none;
+  cursor: grab;
+}
+.canvas[data-panning='true'] {
+  cursor: grabbing;
+}
+.canvas[data-linking='true'] {
+  cursor: crosshair;
+}
+
+.world {
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.card {
+  position: absolute;
+  border-radius: 10px;
+  border: 1px solid var(--net-border);
+  border-left-width: 4px;
+  background: var(--net-card);
+  transition: border-color 120ms, box-shadow 120ms, opacity 150ms;
+}
+.card:hover {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+.card:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.state-ready {
+  border-color: rgba(34, 197, 94, 0.45);
+  border-left-color: var(--net-ready);
+  background: linear-gradient(0deg, var(--net-ready-bg), var(--net-ready-bg)), var(--net-card);
+}
+.state-blocked {
+  border-color: var(--net-blocked);
+  border-left-color: var(--net-blocked);
+  background: linear-gradient(0deg, var(--net-blocked-bg), var(--net-blocked-bg)), var(--net-card);
+}
+.state-prog {
+  border-color: rgba(20, 184, 166, 0.5);
+  border-left-color: var(--net-prog);
+  background: linear-gradient(0deg, var(--net-prog-bg), var(--net-prog-bg)), var(--net-card);
+}
+.state-done {
+  opacity: 0.45;
+}
+.state-done .title {
+  text-decoration: line-through;
+  color: var(--muted-foreground);
+}
+
+.onPath {
+  box-shadow: 0 0 0 2px var(--net-path), 0 0 18px rgba(245, 158, 11, 0.25);
+}
+.selected {
+  box-shadow: 0 0 0 2px var(--primary), 0 8px 24px rgba(0, 0, 0, 0.5) !important;
+}
+.dimmed {
+  opacity: 0.16;
+}
+.state-done.dimmed {
+  opacity: 0.1;
+}
+.dropTarget {
+  box-shadow: 0 0 0 3px #e4e4e7, 0 0 24px rgba(228, 228, 231, 0.35) !important;
+}
+.linkSource {
+  box-shadow: 0 0 0 2px #e4e4e7 !important;
+}
+
+/* Connector handle: always in the DOM (so it can be grabbed), visible on hover/focus. */
+.handle {
+  position: absolute;
+  right: -9px;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  margin-top: -9px;
+  border-radius: 9999px;
+  border: 2px solid #e4e4e7;
+  background: #27272a;
+  cursor: crosshair;
+  opacity: 0;
+  transition: opacity 100ms, transform 100ms;
+  touch-action: none;
+}
+.handle::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border-radius: 9999px;
+  background: #e4e4e7;
+}
+.card:hover .handle,
+.card:focus-within .handle,
+.handle:focus-visible {
+  opacity: 1;
+}
+.handle:hover {
+  transform: scale(1.2);
+}
+
+.edge {
+  fill: none;
+  stroke: var(--net-edge);
+  stroke-width: 1.6;
+  opacity: 0.8;
+}
+.edgeDone {
+  stroke-dasharray: 5 5;
+  opacity: 0.3;
+}
+.edgeOpen {
+  stroke: #d4d4d8;
+}
+.edgePath {
+  stroke: var(--net-path);
+  stroke-width: 3;
+  opacity: 1;
+}
+.edgeConflict {
+  stroke: var(--net-conflict);
+  stroke-dasharray: 2 4;
+  stroke-width: 2.2;
+  opacity: 1;
+}
+.edgeDim {
+  opacity: 0.07;
+}
+.edgeSelected {
+  stroke: #818cf8;
+  stroke-width: 3.5;
+  opacity: 1;
+}
+.edgeHit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 14;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+.edgeHit:hover + .edgeHover {
+  opacity: 1;
+}
+.linkLine {
+  fill: none;
+  stroke: #e4e4e7;
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+}
+
+.chip-ready { background: rgba(34, 197, 94, 0.16); color: #86efac; }
+.chip-blocked { background: rgba(239, 68, 68, 0.16); color: #fca5a5; }
+.chip-prog { background: rgba(20, 184, 166, 0.16); color: #5eead4; }
+.chip-done { background: rgba(82, 82, 91, 0.35); color: #a1a1aa; }
+
+.panel {
+  transition: transform 200ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card,
+  .handle,
+  .panel {
+    transition: none !important;
+  }
+}

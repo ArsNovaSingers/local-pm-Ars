@@ -1,7 +1,10 @@
 import { getPayload } from 'payload'
 import config from '@payload-config'
 import { getScopeData } from '@/lib/scope'
-import { ViewPlaceholder } from '@/components/views/ViewPlaceholder'
+import { toBoardStatuses } from '@/components/kanban/status-utils'
+import { NetworkView } from '@/components/network/NetworkView'
+import { initialsFor, type Person } from '@/components/tree/tree-model'
+import type { Milestone, Project, Team, Ticket } from '@/payload-types'
 
 export const dynamic = 'force-dynamic'
 
@@ -9,43 +12,99 @@ interface NetworkPageProps {
   searchParams: Promise<{ project?: string; team?: string; milestone?: string }>
 }
 
+function idOf(value: unknown): string | null {
+  if (!value) return null
+  if (typeof value === 'string') return value
+  if (typeof value === 'object' && 'id' in value) return String((value as { id: unknown }).id)
+  return null
+}
+
+/**
+ * Network view: the blockedBy graph of the filtered scope as a layered DAG — what is
+ * ready, what is genuinely blocked, and the critical path to a concert. Data comes from
+ * getScopeData() like the other whole-picture views; everything handed to the client is
+ * reduced to the fields the view reads, so populated Team Member documents (which carry
+ * auth fields) never reach the browser.
+ */
 export default async function NetworkPage({ searchParams }: NetworkPageProps) {
   const params = await searchParams
+  const filters = {
+    project: params.project || null,
+    team: params.team || null,
+    milestone: params.milestone || null,
+  }
   const payload = await getPayload({ config })
   const scope = await getScopeData(payload, {
-    projectId: params.project || null,
-    teamId: params.team || null,
-    milestoneId: params.milestone || null,
+    projectId: filters.project,
+    teamId: filters.team,
+    milestoneId: filters.milestone,
   })
 
-  const tickets = scope.tickets as Array<{ blockedBy?: unknown[] }>
-  const edges = tickets.reduce((sum, t) => sum + (Array.isArray(t.blockedBy) ? t.blockedBy.length : 0), 0)
-  const connected = new Set<string>()
-  for (const t of scope.tickets as Array<{ id: string; blockedBy?: unknown[] }>) {
-    if (Array.isArray(t.blockedBy) && t.blockedBy.length) {
-      connected.add(String(t.id))
-      for (const b of t.blockedBy) {
-        connected.add(String(typeof b === 'object' && b && 'id' in b ? (b as { id: unknown }).id : b))
-      }
-    }
-  }
+  const people: Person[] = (scope.teamMembers as Team[]).map((m) => ({
+    id: m.id,
+    name: m.name,
+    initials: m.initials || initialsFor(m.name),
+    color: m.color ?? null,
+  }))
+  const peopleById = new Map(people.map((p) => [p.id, p]))
+
+  const projects = (scope.projects as Project[]).map((p) => ({
+    id: p.id,
+    name: p.name,
+    prefix: p.prefix,
+    color: p.color ?? null,
+  }))
+  const projectsById = new Map(projects.map((p) => [p.id, p]))
+
+  const milestones = (scope.milestones as Milestone[]).map((m) => ({
+    id: m.id,
+    name: m.name,
+    date: m.date,
+    color: m.color ?? null,
+    project: idOf(m.project),
+  }))
+  const milestonesById = new Map(milestones.map((m) => [m.id, m]))
+
+  const tickets = (scope.tickets as Ticket[]).map((t) => {
+    const teamId = idOf(t.team)
+    const projectId = idOf(t.project)
+    const milestoneId = idOf(t.milestone)
+    return {
+      id: t.id,
+      ticketId: t.ticketId ?? null,
+      title: t.title,
+      description: t.description ?? null,
+      status: t.status,
+      priority: t.priority ?? null,
+      project: (projectId && projectsById.get(projectId)) || projectId || '',
+      team: teamId ? (peopleById.get(teamId) ?? teamId) : null,
+      milestone: milestoneId ? (milestonesById.get(milestoneId) ?? milestoneId) : null,
+      blockedBy: (t.blockedBy ?? []).map((b) =>
+        typeof b === 'string'
+          ? b
+          : { id: b.id, ticketId: b.ticketId ?? null, title: b.title, status: b.status, project: idOf(b.project) },
+      ),
+      labels: t.labels ?? [],
+      startDate: t.startDate ?? null,
+      dueDate: t.dueDate ?? null,
+      subtasks: t.subtasks ?? [],
+      sortOrder: t.sortOrder ?? 0,
+      createdAt: t.createdAt,
+      updatedAt: t.updatedAt,
+    } as unknown as Ticket
+  })
 
   return (
-    <ViewPlaceholder
-      title="Network"
-      phase="Phase 3"
-      summary="The dependency structure on one canvas — what is ready, what is genuinely blocked, and the critical path to a milestone."
-      scope={scope}
-      stats={[
-        { label: 'Dependency edges', value: edges },
-        { label: 'Connected tickets', value: connected.size },
-        { label: 'Unconnected', value: tickets.length - connected.size },
-      ]}
-      note={
-        edges === 0
-          ? 'No dependencies recorded in this scope yet. The canvas is built, but a graph needs edges — dependency capture (drag-to-link, and the link_tickets MCP tool shipped in this release) comes first.'
-          : `${edges} dependency edge${edges === 1 ? '' : 's'} recorded. Unconnected tickets will sit in a side tray rather than floating on the canvas.`
-      }
+    <NetworkView
+      tickets={tickets}
+      projects={projects}
+      people={people}
+      milestones={milestones}
+      statuses={toBoardStatuses(scope.statuses)}
+      truncated={scope.truncated}
+      totalInScope={scope.totalInScope}
+      limit={scope.limit}
+      filters={filters}
     />
   )
 }
