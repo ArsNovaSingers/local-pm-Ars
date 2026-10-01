@@ -1,7 +1,9 @@
 import { getPayload } from 'payload'
 import config from '@payload-config'
 import { getScopeData } from '@/lib/scope'
-import { ViewPlaceholder } from '@/components/views/ViewPlaceholder'
+import { toBoardStatuses } from '@/components/kanban/status-utils'
+import { TimelineView } from '@/components/timeline/TimelineView'
+import { toTimelineData } from '@/components/timeline/timeline-data'
 
 export const dynamic = 'force-dynamic'
 
@@ -9,37 +11,34 @@ interface TimelinePageProps {
   searchParams: Promise<{ project?: string; team?: string; milestone?: string }>
 }
 
+/**
+ * Timeline: the filtered scope on a date axis. Bars for start + due, diamonds for due-only
+ * tickets, milestone lines across every lane, and an undated tray per lane whose items can
+ * be dragged onto the chart to give them a due date.
+ */
 export default async function TimelinePage({ searchParams }: TimelinePageProps) {
   const params = await searchParams
+  const filters = {
+    project: params.project || null,
+    team: params.team || null,
+    milestone: params.milestone || null,
+  }
   const payload = await getPayload({ config })
   const scope = await getScopeData(payload, {
-    projectId: params.project || null,
-    teamId: params.team || null,
-    milestoneId: params.milestone || null,
+    projectId: filters.project,
+    teamId: filters.team,
+    milestoneId: filters.milestone,
   })
-
-  const tickets = scope.tickets as Array<{ startDate?: string | null; dueDate?: string | null }>
-  const bars = tickets.filter((t) => t.startDate && t.dueDate).length
-  const diamonds = tickets.filter((t) => !t.startDate && t.dueDate).length
-  const unscheduled = tickets.length - bars - diamonds
+  const data = toTimelineData(scope)
 
   return (
-    <ViewPlaceholder
-      title="Timeline"
-      phase="Phase 1"
-      summary="Tasks laid out on a date axis — schedules, durations, dependency arrows and milestone markers."
-      scope={scope}
-      stats={[
-        { label: 'Bars (start + due)', value: bars },
-        { label: 'Milestones (due only)', value: diamonds },
-        { label: 'Unscheduled', value: unscheduled },
-        { label: 'Milestones defined', value: scope.milestones.length },
-      ]}
-      note={
-        unscheduled > 0
-          ? `${unscheduled} of ${tickets.length} tickets in this scope have no dates. The timeline will show them in an "Unscheduled" tray you can drag onto the chart — that drag is what puts real dates into the store.`
-          : 'Every ticket in this scope carries dates.'
-      }
+    <TimelineView
+      {...data}
+      statuses={toBoardStatuses(scope.statuses)}
+      truncated={scope.truncated}
+      totalInScope={scope.totalInScope}
+      limit={scope.limit}
+      filters={filters}
     />
   )
 }
