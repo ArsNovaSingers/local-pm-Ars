@@ -1,4 +1,4 @@
-import type { CollectionConfig, PayloadRequest } from 'payload'
+import { APIError, type CollectionConfig, type PayloadRequest } from 'payload'
 import { TicketPriority, TICKET_PRIORITY_OPTIONS, TicketStatus } from '@/types/enums'
 import { collectionAccess } from '@/lib/access'
 import { stampActor, actorFields } from '@/lib/actor'
@@ -222,7 +222,7 @@ async function assertNoDependencyCycle(
   if (!proposed.length) return
 
   if (selfId !== null && proposed.includes(String(selfId))) {
-    throw new Error('A ticket cannot block itself.')
+    throw new APIError('A ticket cannot block itself.', 400, null, true)
   }
   if (selfId === null) return // a brand-new ticket cannot yet be anyone's blocker
 
@@ -245,8 +245,13 @@ async function assertNoDependencyCycle(
     for (const doc of docs.docs) {
       for (const id of toIdArray((doc as { blockedBy?: unknown }).blockedBy)) {
         if (id === target) {
-          throw new Error(
+          // APIError with isPublic=true: a plain Error reaches the client as a bare 500
+          // "Something went wrong", which hid this explanation from the Network view.
+          throw new APIError(
             'That dependency would create a cycle: the ticket you are blocking on already depends on this one, directly or through other tickets.',
+            400,
+            null,
+            true,
           )
         }
         if (!seen.has(id)) {

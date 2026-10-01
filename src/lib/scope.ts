@@ -11,7 +11,7 @@ import type { Payload, Where } from 'payload'
  * The cap exists so that a very large workspace degrades visibly rather than silently:
  * `truncated` is surfaced in the UI rather than swallowed.
  */
-export const SCOPE_LIMIT = 500
+export const SCOPE_LIMIT = 2000 // was 500; 404 tickets on 2026-10-01 and growing
 
 export interface ScopeFilters {
   projectId?: string | null
