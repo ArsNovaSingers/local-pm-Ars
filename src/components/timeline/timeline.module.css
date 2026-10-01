@@ -1,0 +1,202 @@
+/* Timeline item states. Same semantics and colours as the Tree view (tree.module.css):
+   done = grey faded, crit (overdue / urgent) = red, soon (due within 3 days) = amber,
+   prog = teal, todo = neutral, blocked = red outline. */
+
+.scroller {
+  overscroll-behavior: contain;
+  background: var(--background);
+}
+.scroller[data-dragging='true'] {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.todayLine {
+  border-left: 2px solid var(--primary);
+  box-shadow: 0 0 8px rgba(99, 102, 241, 0.6);
+}
+
+.item {
+  --c: #a1a1aa;
+  --c-bg: rgba(113, 113, 122, 0.25);
+  position: absolute;
+  z-index: 2;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  outline: none;
+}
+.item:focus-visible {
+  outline: 2px solid var(--ring, #6366f1);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.todo { --c: #a1a1aa; --c-bg: rgba(113, 113, 122, 0.28); }
+.prog { --c: #14b8a6; --c-bg: rgba(20, 184, 166, 0.3); }
+.soon { --c: #f59e0b; --c-bg: rgba(245, 158, 11, 0.3); }
+.crit { --c: #ef4444; --c-bg: rgba(239, 68, 68, 0.32); }
+.done { --c: #52525b; --c-bg: rgba(82, 82, 91, 0.3); opacity: 0.5; }
+
+/* --- due-only marker ---------------------------------------------------- */
+.point {
+  min-width: 14px;
+}
+.diamond {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  margin: 0 1.5px;
+  transform: rotate(45deg);
+  border-radius: 2px;
+  background: var(--c);
+  border: 1.5px solid var(--c);
+  box-shadow: 0 0 0 1.5px var(--background);
+}
+.todo .diamond {
+  background: #3f3f46;
+  border-color: #a1a1aa;
+}
+.pointLabel {
+  margin-left: 5px;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 20px;
+  color: var(--foreground);
+  pointer-events: none;
+}
+.done .pointLabel,
+.done .barLabel,
+.done .sideLabel {
+  text-decoration: line-through;
+  color: var(--muted-foreground);
+}
+
+/* --- start + due bar ---------------------------------------------------- */
+.bar {
+  height: 16px;
+  border-radius: 4px;
+  background: var(--c-bg);
+  border: 1px solid var(--c);
+  border-left-width: 3px;
+}
+.barLabel {
+  padding: 0 5px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  line-height: 14px;
+  color: var(--foreground);
+  pointer-events: none;
+}
+.sideLabel {
+  position: absolute;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--foreground);
+  pointer-events: none;
+}
+
+/* --- modifiers ---------------------------------------------------------- */
+.blocked .diamond {
+  box-shadow: 0 0 0 1.5px var(--background), 0 0 0 3px #ef4444;
+}
+.blocked.bar {
+  box-shadow: 0 0 0 1.5px #ef4444;
+}
+.conflict .pointLabel,
+.conflict .sideLabel {
+  color: #fca5a5;
+}
+.conflictFlag {
+  flex: none;
+  margin-left: 3px;
+  width: 13px;
+  height: 13px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 13px;
+  text-align: center;
+  pointer-events: none;
+}
+.selected .diamond {
+  box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--primary);
+}
+.selected.bar,
+.selected.chip {
+  box-shadow: 0 0 0 2px var(--primary);
+}
+.selected .pointLabel {
+  color: #c7d2fe;
+  font-weight: 600;
+}
+.moving {
+  z-index: 6;
+  cursor: grabbing;
+  opacity: 0.9;
+}
+.dragTip {
+  position: absolute;
+  top: -18px;
+  left: 0;
+  white-space: nowrap;
+  border-radius: 4px;
+  background: var(--foreground);
+  color: var(--background);
+  padding: 0 5px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 15px;
+  pointer-events: none;
+}
+
+/* --- collapsed lane dot -------------------------------------------------- */
+.dot {
+  position: absolute;
+  top: 14px;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--c);
+}
+
+/* --- unscheduled tray chip ---------------------------------------------- */
+.chip {
+  flex: none;
+  display: inline-flex;
+  max-width: 240px;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--c);
+  background: var(--card);
+  font-size: 12px;
+  color: var(--foreground);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.chip:hover {
+  border-color: #71717a;
+  border-left-color: var(--c);
+}
+.chip:focus-visible {
+  outline: 2px solid var(--ring, #6366f1);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .todayLine {
+    box-shadow: none;
+  }
+}
