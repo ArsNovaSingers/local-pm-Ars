@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import type { CollectionConfig } from 'payload'
 import { collectionAccess } from '@/lib/access'
 import { iapStrategy } from '@/lib/iap-auth'
@@ -66,6 +67,19 @@ export const TeamMembers: CollectionConfig = {
     { name: 'description', type: 'textarea' },
   ],
   hooks: {
+    beforeValidate: [
+      // People sign in through IAP and agents through an API key, so the People screen and the
+      // connector's create_team_member send no password. Payload's local strategy still requires
+      // one on create, so give the account an unguessable one nobody knows. Password login stays
+      // available: set a real password later from the admin panel or the forgot-password flow.
+      // Never log or return this value.
+      ({ data, operation }) => {
+        if (operation === 'create' && data && !data.password) {
+          data.password = randomBytes(32).toString('base64url')
+        }
+        return data
+      },
+    ],
     beforeChange: [
       ({ data }) => {
         if (data && !data.initials && typeof data.name === 'string' && data.name.trim()) {
